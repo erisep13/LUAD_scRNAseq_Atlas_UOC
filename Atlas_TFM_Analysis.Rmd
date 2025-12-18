@@ -1,0 +1,75 @@
+---
+title: "Transcriptomic Atlas Analysis"
+author: "Erise Pérez Pascual"
+date: "2025-12-17"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+```
+
+# Importación de los datos
+
+El conjunto de datos final de este Trabajo Final que consiste en un atlas transcriptómico de scRNA-seq de pacientes con LUAD para estudiar los tumores con mutaciones *driver* en EGFR en comparación con las mutaciones en KRAS y ALK se ha guardado como un objeto Seurat en un archivo rds llamado `final_data_tfm.rds`. Este dataset contiene información para 75513 genes en 61228 células para 27 pacientes, de los cuales 14 presentan mutaciones *driver* en EGFR, 9 en KRAs y 4 en ALK.
+
+```{r}
+# Carga del objeto final
+luad_atlas <- readRDS("final_data_tfm.rds")
+```
+
+# QC y corrección del *batch effect* para los datos finales
+
+Se aplica el control de calidad para todo el conjunto de datos para obtener todas aquellas células cuyo número de genes por célula esté entre 200 y 3000, tal y como se especificaba para los datos de referencia.
+
+```{r}
+# Aplicación del control de calidad para nFeature_RNA
+luad_atlas <- subset(luad_atlas, subset = nFeature_RNA > 200 & nFeature_RNA < 3000)
+```
+
+```{r}
+# Violin plots para las métricas iniciales de QC
+qc1 <- VlnPlot(luad_atlas, "nFeature_RNA", group.by = "Study", raster=F, pt.size=0) + theme_bw() + labs(title="Control de calidad según el número de genes por célula")
+qc2 <- VlnPlot(luad_atlas, "Percent_mt", group.by="Study", raster=F, pt.size=0) + theme_bw() + labs(title="Control de calidad según el porcentaje de genes mitocondriales por célula")
+
+(qc1 + qc2) + plot_annotation(title = "Métricas básicas de control de calidad divididas por estudio y genes")
+
+ggsave("atlas_qc.png", plot = get_last_plot(), width = 14)
+```
+
+Asimismo, se estudia el efecto *batch* que ha podido producirse tras juntar los datos de referencia (con accesiones GSE) y los de validación. Esto se observa tanto en la representación del PCA como en el UMAP agrupados por el estudio de origen de cada célula. Se observa que las células se distribuyen homogéneamente en los clusters independientemente de su estudio de origen, lo que indica que el efecto *batch* ha sido corregido.
+
+```{r}
+# Efecto batch por PCA derivado del lote o estudio de origen de las muestras
+batch1  <- DimPlot(luad_atlas, reduction = "pca.ref", dims = c(1, 2), group.by = "Study", raster = FALSE) + theme_bw() + NoLegend() + labs(title="Ausencia de efecto batch por PCA")
+batch2 <- DimPlot(luad_atlas, reduction = "umap.ref", dims = c(1, 2), group.by = "Study", raster = FALSE) + theme_bw() + labs(title="Ausencia de efecto batch por UMAP")
+
+(batch1 + batch2) + plot_annotation(title="Ausencia de efecto batch provocado por el origen de las muestras")
+
+ggsave("atlas_batch.png", plot = get_last_plot(), width = 17)
+```
+
+Respecto a las proporciones del origen de las células se observa que el dataset de referencia compone un 95.21% del total (vs. 4.79% del dataset de validación). Si se analiza el estudio del que proviene cada célula, el total de los datos de validación viene del estudio de Maynard, A. *et al.*, 2020 (etiquetado como `czbiohub`). La mayor parte de los datos finales proviene del estudio GSE136246 en un 63.95%. 
+
+```{r}
+# Proporción según el origen de los datos
+prop.table(table(luad_atlas@meta.data$id))
+prop.table(table(luad_atlas@meta.data$Study))
+```
+
+# Estudio según otras variables confusoras
+
+
+
+
+
+
+
+

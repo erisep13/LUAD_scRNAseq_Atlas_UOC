@@ -1,0 +1,526 @@
+---
+title: "Validation dataset preparation"
+author: "Erise Pérez Pascual"
+date: "2025-12-05"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+```
+
+En este documento Rmd se da la preparación de un dataset de validación a partir de las uestras con mutaciones driver en EGFR de pacientes que no han sido sometidos a tratamiento del artículo: *Therapy-Induced Evolution of Human Lung Cancer Revealed by Single-Cell RNA Sequencing* (Maynard, A. *et al.*, 2020). Se seguirán los scripts proporcionados por el estudio en czbiohub/scell_lung_adenocarcinoma, y adaptados al estuido de referencia para la construcción del atlas transcriptómico de este Trabajo Final.
+
+# Importación de los datos y metadatos
+
+Se descargan los datos crudos y su metadata de una carpeta de drive proporcionada por el estudio. Se guardan ambos objetos como archivos .RData para poder cargarlos más rápidamente.
+
+```{r}
+# cargamos los datos
+raw.data <- read.csv("S01_datafinal.csv", header=T, row.names=1)
+head(raw.data)
+
+# cargamos los metadatos
+metadata <- read.csv("S01_metacells.csv", row.names=1, header=T)
+head(metadata)
+```
+
+Por otra parte, el artículo añadió 5 muestras adicionales bajo el nombre de `neo-osi`. Con estas muestras adicionales se sigue el mismo procedimiento de descarga y generación del proceso Seurat, para luego juntar todos los datos en un único dataset.
+
+```{r}
+# Cargamos los datos adicionales
+osi.raw.data <- read.csv("neo-osi_rawdata.csv", row.names=1)
+colnames(osi.raw.data) <- gsub("_S.*.homo*", "", colnames(osi.raw.data))
+head(osi.raw.data)
+
+# Eliminamos los detalles de secuenciación de la tabla de contajes
+row.names(osi.raw.data)[grep("__", row.names(osi.raw.data))]
+osi.raw.data <- osi.raw.data[-grep("__", row.names(osi.raw.data)),]
+
+# Cargamos y arreglamos los metadatos para que se identifiquen mediante el identificador celular y no por plate
+# Cargamos los datos
+osi.metadata <- read.csv("neo-osi_metadata.csv")
+
+# Identificamos los nombres identificadores de las células
+osi.meta.cell <- as.data.frame(colnames(osi.raw.data))
+osi.meta.cell <- data.frame(do.call('rbind', strsplit(as.character(osi.meta.cell$`colnames(osi.raw.data)`),'_',fixed=TRUE)))
+
+# Añadimos los identificadores como nombres de fila y los respectivos nombres de well y plate como las columnas
+rownames(osi.meta.cell) <- paste(osi.meta.cell$X1, osi.meta.cell$X2, sep = "_")
+colnames(osi.meta.cell) <- c("well", "plate")
+osi.meta.cell$cell_id <- rownames(osi.meta.cell)
+
+# Montamos el metadata
+osi.metadata <- left_join(osi.meta.cell, osi.metadata, by = "plate")
+
+rownames(osi.metadata) <- osi.metadata$cell_id
+```
+
+# Generación de los objetos Seurat
+
+Antes de generar el objeto Seurat, el artículo de origen de los datos hace un paso previo de limpieza de datos como un control interno llamado control ERCC en el que se usan unos transcritos de RNA sintéticos con secuencia y cantidad conocida llamados *spike-in RNA* que sirven para calibrar las medidas de scRNA-seq. Para ello, se buscan los ERCC, se computa su porcentaje y se eliminan de los datos para el control negativo de las mutaciones de falso positivo.
+
+```{r}
+# Buscamos los ERCC
+erccs <- grep(pattern = "^ERCC-", x = rownames(x = raw.data), value = TRUE)
+
+# Calculamos su porcentaje
+percent.ercc <- Matrix::colSums(raw.data[erccs, ])/Matrix::colSums(raw.data)
+
+# Determinamos el index para esos ERCC y los eliminamos de los datos crudos
+ercc.index <- grep(pattern = "^ERCC-", x = rownames(x = raw.data), value = FALSE)
+raw.data <- raw.data[-ercc.index,]
+```
+
+A continuación, se utilizan los datos sin ERCC para crear el objeto Seurat inicial. Este objeto tiene 26485 genes para 27489 muestras. Después, se añade el metadata. Se añade el ID celular como nombre de fila, se añaden los metadatos desde el objeto metadata y se añade el porcentaje ERCC calculado previamente.
+
+```{r}
+# Creamos el objeto Seuart con los raw counts
+raw_seu <- CreateSeuratObject(counts=raw.data)
+
+# Añadimos los nombres de fila como ID celular
+row.names(metadata) <- metadata$cell.id
+
+# Añadimos el metadata al objeto Seurat
+raw_seu <- AddMetaData(object = raw_seu, metadata = metadata)
+raw_seu <- AddMetaData(object = raw_seu, percent.ercc, 
+                       col.name = "percent.ercc")
+```
+
+Se calcula el porcentaje de genes ribosómicos y se añade la información al metadata. Además, se calcula el porcentaje de genes mitocondriales y se añade al metadata, ya que en el artículo de referencia se usaba el porcentaje de genes mitocondriales para hacer la limpieza de los datos.
+
+```{r}
+# Buscamos los genes ribosómicos y se añade su porcentaje como nueva columna al metadata
+raw_seu[["percent.ribo"]] <- PercentageFeatureSet(raw_seu, pattern = "^RP[SL][[:digit:]]")
+
+# Buscamos el porcentaje de genes mitocondriales y lo añadimos al metadata
+raw_seu[["percent.mt"]] <- PercentageFeatureSet(raw_seu, pattern="^MT-")
+```
+
+En el artículo del que se saca este conjunto de datos la limpieza se hace filtrando las células para quedarse con aquellas que tienen `nFeature_RNA > 500 & nCount_RNA > 50000`. Cabe mencionar que cuando se haga la integración de los datos, se volverá a hacer una limpieza para que todos los datos, los de referencia y validación, sigan los mismos criterios. en este caso se añadirá el filtro por genes mitocondriales para seleccionar las células con menos de un 20% de genes mitocondriales. Tras la limpieza de datos se tiene un conjunto de datos con 26485 genes en 21444 células. Se puede observar como, mientras el número de genes se mantiene, tras esta fase se ha disminuido el número de células válidas para el análisis.
+
+```{r}
+# Filtramos los datos
+filtered_seurat <- subset(raw_seu, subset = nCount_RNA > 50000 & nFeature_RNA > 500 & percent.mt < 20)
+```
+
+Este conjunto de datos filtrados se puede guardar como un nuevo objeto .rds.
+
+```{r}
+#saveRDS(filtered_seurat, "Main_Seurat_filtered.rds")
+main_seurat <- readRDS("Main_Seurat_filtered.rds")
+```
+
+El análisis de calidad se puede observar mediante un violin plot.
+
+```{r, message=FALSE, warning=FALSE}
+VlnPlot(main_seurat, features = c("nFeature_RNA", "nCount_RNA", "Percent_mt"), ncol = 3, pt.size=0)
+```
+
+## Generación del objeto adicional (neo-osi)
+
+Como se ha comentado, para le objeto adicional se sigue el mismo procdimiento de generación el objeto Seurat y limpieza de datos.
+
+```{r}
+# Buscamos los ERCC
+erccs <- grep(pattern = "^ERCC-", x = rownames(x = osi.raw.data), value = TRUE)
+
+# Calculamos su porcentaje
+percent.ercc <- Matrix::colSums(osi.raw.data[erccs, ])/Matrix::colSums(osi.raw.data)
+
+# Determinamos el index para esos ERCC y los eliminamos de los datos crudos
+ercc.index <- grep(pattern = "^ERCC-", x = rownames(x = osi.raw.data), value = FALSE)
+osi.raw.data <- osi.raw.data[-ercc.index,]
+
+# Creamos el objeto Seuart con los raw counts
+osi_seurat <- CreateSeuratObject(counts=osi.raw.data)
+
+# Añadimos el metadata al objeto Seurat
+osi_seurat <- AddMetaData(object = osi_seurat, metadata = osi.metadata)
+osi_seurat <- AddMetaData(object = osi_seurat, percent.ercc, 
+                       col.name = "percent.ercc")
+
+# Cambiamos el nombre de la columna nUMI a nReads
+colnames(osi_seurat@meta.data)[colnames(osi_seurat@meta.data) == 'nUMI'] <- 'nReads'
+
+# Buscamos los genes ribosómicos y se añade su porcentaje como nueva columna al metadata
+osi_seurat[["percent.ribo"]] <- PercentageFeatureSet(osi_seurat, pattern = "^RP[SL][[:digit:]]")
+
+# Buscamos el porcentaje de genes mitocondriales y lo añadimos al metadata
+osi_seurat[["percent.mt"]] <- PercentageFeatureSet(osi_seurat, pattern="^MT-")
+
+# Filtramos los datos
+filtered_osi_seurat <- subset(osi_seurat, subset = nCount_RNA > 50000 & nFeature_RNA > 500 & percent.mt < 20)
+```
+
+El objeto generado tiene el mismo número de genes que el objeto principal (26485), en 2070 células.
+
+```{r}
+#saveRDS(filtered_osi_seurat, "Aditional_Seurat_filtered.rds")
+aditional_seurat <- readRDS("Aditional_Seurat_filtered.rds")
+```
+
+El control de calidad se puede estudiar mediante un violin plot.
+
+```{r}
+VlnPlot(aditional_seurat, features = c("nFeature_RNA", "nCount_RNA", "Percent_mt"), ncol = 3, pt.size=0) 
+```
+
+## Obtención del dataset completo
+
+Para obtener el dataset completo hay que juntar los dos conjuntos que se han filtrado (principal y adicional) mediante la función `merge()`. De esta manera se genera el objeto completo con 26485 genes para 23514 células.
+
+```{r}
+# Juntamos el objeto adicional al objeto principal
+complete_data <- merge(x = main_seurat, y = aditional_seurat)
+
+#saveRDS(complete_data, "Complete_Seurat.rds")
+complete_data <- readRDS("Complete_Seurat.rds")
+```
+
+# Preprocesamiento el objeto Seurat completo
+
+## Limpieza de muestras con poca carga celular
+
+Algunas de las muestras cotienen un número de células muy pequeño, por lo que no son interesantes para el estudio, estos grupos se filtran para eliminar aquellas muestras con 10 o menos células.
+
+```{r}
+# Generamos una tabla con el número de células para cada muestra
+tab.1 <- table(complete_data@meta.data$sample_name)
+
+# Generamos una lista con los nombres de las muestras con más de 10 células, las cuales se quieren mantener
+samples.keep <- names(which(tab.1 > 10))
+
+# Filtramos el metadata para eliminar las muestras con menos de 10 células
+sample_name <- as.character(complete_data@meta.data$sample_name)
+metadata.keep <- filter(complete_data@meta.data, sample_name %in% samples.keep)
+
+# Generamos el subconjunto de seurat filtrado
+complete_data_subset <- subset(complete_data, cells=as.character(metadata.keep$cell_id))
+
+# Guardamos/cargamos el conjunto limpio
+#saveRDS(complete_data_subset, "Complete_data_subset.rds")
+complete_data_subset <- readRDS("Complete_data_subset.rds")
+```
+
+## Normalizado y escalado de los datos
+
+Los datos se normalizan utilizando un facotr de escalado de `scale.factor=1e6` y se escalan los datos, utilizando las funciones propias de Seurat.
+
+```{r}
+# Normalización
+complete_data_subset <- NormalizeData(complete_data_subset, 
+                                      scale.factor=1e6)
+complete_data_subset <- ScaleData(complete_data_subset)
+
+#saveRDS(complete_data_subset, "Complete_data_subset.rds")
+complete_data_subset <- readRDS("Complete_data_subset.rds")
+```
+
+A continuación, se buscan los genes altamente variables y se representan en un gráfico de puntos. En rojo están representados los genes altmaente variables, incluyendo una etiqueta identificativa para los 10 primeros.
+
+```{r, message=FALSE, warning=FALSE}
+# Buscamos los genes altamente variables
+complete_data_subset <- FindVariableFeatures(complete_data_subset, x.high.cutoff=Inf, y.cutoff=0.5)
+
+# Seleccionamos los 10 genes más variables y representamos
+top10 <- head(VariableFeatures(complete_data_subset), 10)
+plot1 <- VariableFeaturePlot(complete_data_subset)
+LabelPoints(plot = plot1, points = top10, repel = TRUE)
+
+#saveRDS(complete_data_subset, "Complete_data_subset.rds")
+complete_data_subset <- readRDS("Complete_data_subset.rds")
+```
+
+## Subconjuntos de datos de interés
+
+Antes de seguir con los análisis, se seleccionan únicamente los datos de pacientes que no han sido tratados previamente. Para el conjunto de datos principal de este dataset los pacientes no tratados (TN, *treatment naive*) se seleccionan en el metadata como `biopsy_time_status == "off treatment"`. Para el conjunto adicional de datos (`neo_osi`) los pacientes TN se identifican como `analysis == "naive"`. Además, eliminamos en este subconjunto las muetras de los pacientes cuyo gen *driver* no sea uno de los de interés. En este caso, si se miran los metadatos de los datos utilizados en el artículo para los pacientes TN, se observa que las muestras LT_S65 y LT_S66 de los pacientes TH238_NAT y TH238 tienen la mutación BRAF, por lo que se eliminan del subconjunto.
+
+```{r}
+# Generamos el subconjunto de datos para los pacientes de interés
+tn_subset <- subset(complete_data_subset, subset = biopsy_time_status == "off treatment" 
+                    | analysis == "naive")
+tn_subset <- subset(tn_subset, subset = driver_gene != "BRAF")
+
+#saveRDS(tn_subset, "tn_subset.rds")
+tn_subset <- readRDS("tn_subset.rds")
+```
+
+Después de hacer el subset para los datos totales, se obtiene un dataset con 13 muestras que no han recibido tratamiento previo y que presentan mutaciones driver en EGFR (8 muestras), KRAS (1 muestra) o ALK (4 muestras). El dataset resultante tiene 26485 genes para 5161 células. Estos datos se someterán a los próximos pasos de preprocesado del objeto Seurat.
+
+## Reducción dimensional (PCA)
+
+La reducción dimensional se realiza con la función `RunPCA()`. Se puede determinar qué genes incluir en la PCA mediante el argumento `features`, pero por defecto se incluyen todos. Se puede visualizar la varianza para cada componente utilizando la función `ElbowPlot()`. Asimismo, se pueden hacer varias visualizaciones: visualización de las dos primeras PCs con `PCAPlot()`, visualización de los genes top y sus cargas con `VizDimLoadings()`, o visualización de los genes top en componentes principales con un mapa de calor con la función `DimHeatmap()`.
+
+```{r}
+# PCA
+tn_subset <- RunPCA(tn_subset)
+
+# Visualizamos la varianza para cada componente
+pca1 <- ElbowPlot(tn_subset) + theme_bw() + labs(title="Visualización de la varianza para cada PC")
+
+# Visualizamos las dos primeras PCs
+pca2 <- PCAPlot(object = tn_subset) + theme_bw() + NoLegend() + labs(title="Visualización de las dos primeras PCs")
+
+# Visualizamos los genes top y sus cargas
+pca3 <- VizDimLoadings(tn_subset, dims = 1:5, reduction = "pca", nfeatures = 10) + theme_bw()
+
+# Visualizamos los top genes en un mapa de calor
+pca4 <- DimHeatmap(tn_subset, reduction = "pca", dims = 1:10, cells = 100, balanced = TRUE)
+
+#saveRDS(tn_subset, "tn_subset.rds")
+tn_subset <- readRDS("tn_subset.rds")
+
+((pca1+pca2)/pca3)  + plot_annotation(title="Análisis de componentes principales")
+
+ggsave("luad_val_pca.png", plot = get_last_plot(), height=19, width = 14)
+```
+
+## Clusterización
+
+Primero, se buscan los vecinos cercanos mediante la función `FindNeighbors()`. A continuación, se buscan los clusters a diferentes resoluciones (0.02 y 0.5, en relación al artículo original, niveles 1 y 2 de agrupamiento) con la función `FindClusters()`, y se computa y visualiza el UMAP con `RunUMAP()`.
+
+```{r}
+# Buscamos los vecinos del algoritmo de clusterización
+tn_subset <- FindNeighbors(tn_subset, verbose = T)
+
+# Generamos agrupaciones para dos niveles según resolución
+tn_subset <- FindClusters(object = tn_subset, verbose = T, resolution = 0.02)
+tn_subset <- FindClusters(object = tn_subset, verbose = T, resolution = 0.5)
+
+# Generamos la reducción de UMAP
+tn_subset <- RunUMAP(tn_subset, reduction = "pca", dims = 1:20)
+tn_subset <- RunUMAP(tn_subset, reduction = "pca", dims = 1:20)
+
+# Visualizamos los clusters para los dos niveles
+level1 <- DimPlot(tn_subset, reduction = "umap", group.by = "RNA_snn_res.0.02", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + labs(title="UMAP para una resolución de agrupamiento de 0.02")
+level2 <- DimPlot(tn_subset, reduction = "umap", group.by = "RNA_snn_res.0.5", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title="UMAP para una resolución de agrupamiento de 0.5")
+
+(level1 + level2) + plot_annotation(title="Agrupación de UMAP de dos niveles para el subconjunto de datos")
+
+ggsave("luad_val_autoprep_umap.png", plot = get_last_plot(), height=11, width = 16)
+```
+
+Tras la realización de los agrupamientos se han conseguido 5 clusters para el nivel 1 y 18 para el nivel 2.
+
+## Control de calidad
+
+Para el QC se comprueba la distribución según las reducciones PCA y UMAP según el identificador del paciente. Al observar la partición de los pacientes parece que el cluster 2 del nivel 1 se expresa con más intensidad en el paciente TH248. Por lo demás, parece que las células se distribuyen homogéneamente en los clusetres encontrados. Al hacer la partición según los pacientes, se observa que los pacientes TH217 y TH218 muestran pocas células.
+
+```{r}
+# Control de calidad según identificador del paciente
+qc1 <- DimPlot(tn_subset, reduction = "pca", group.by = "patient_id", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title="PCA según el identificador del paciente")
+qc2 <- DimPlot(tn_subset, reduction = "umap", group.by = "patient_id", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title="UMAP según el identificador del paciente")
+qc3 <- DimPlot(tn_subset, reduction = "umap", group.by="RNA_snn_res.0.02", split.by = "patient_id", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title="UMAP con agrupaciones de nivel 1 para cada paciente")
+
+((qc1 + qc2) / qc3) + plot_annotation(title="Distribución celular según el paciente del que se extrae la muestra")
+
+ggsave("luad_val_autoprep_qc_patientid.png", plot = get_last_plot(), height=15, width = 20)
+```
+
+## Anotaciones
+
+El primr paso para hacer las anotaciones es encontrar los marcadores positivos para cada cluster con la función `FindAllMarkers()` y el argumento `only.pos = TRUE`. En este caso, es necesario realizar un paso previo que junte las capas que se han ido generando a lo largo del análisis con la función `JoinLayers()`. A continuación, se genera una tabla .csv con los genes diferenciales, o se muestra directamente.
+
+```{r}
+tn_subset <- readRDS("tn_subset.rds")
+
+# Juntamos las capas del análisis
+tn_subset_joinlayers <- JoinLayers(tn_subset)
+
+# Buscamos los marcadores positivos para cada cluster
+tn_subset_markers <- FindAllMarkers(object = tn_subset_joinlayers, 
+                                    only.pos = TRUE, min.pct = 0.25, 
+                                    thresh.use = 0.25, 
+                                    do.print=T, max.cells.per.ident = 500)
+
+# Generamos una tabla con los marcadores diferenciales
+#write.table(tn_subset_markers, "tn_seurat_DE_markers.csv")
+tn_subset_markers <- read.csv("tn_seurat_DE_markers.csv", sep="")
+
+# Mostramos los genes
+top3 <- tn_subset_markers %>% group_by(cluster) %>% top_n(3, avg_log2FC)
+
+heatmap1 <- DoHeatmap(tn_subset, group.by="RNA_snn_res.0.02",features = top3$gene, raster = F, label = F) + NoLegend() +
+  theme(
+    axis.text.y = element_text(size=5)
+  )
+heatmap2 <- DoHeatmap(tn_subset, group.by="RNA_snn_res.0.5",features = top3$gene, raster = F, label = F) + NoLegend() +
+  theme(
+    axis.text.y = element_text(size=5)
+  )
+
+(heatmap1/heatmap2) + plot_annotation(title="Heatmap para la expresión diferencial del top 3 genes para los clusters de nivel 1 y 2")
+
+ggsave("luad_val_autoprep_heatmapDE.png", plot = get_last_plot(), height=15, width = 12)
+```
+
+Los genes diferencialmente expresados se pueden represantar asimismo mediante un `DotPlot()`, representando el porcentaje de expresión de los genes y su expresión media por cluster.
+
+```{r}
+# Representación de la expresión de los genes de interés por cluster 
+dotplot1 <- DotPlot(tn_subset, features = top3$gene, group.by = "RNA_snn_res.0.02") + coord_flip() +
+  theme(axis.text.y = element_text(size=4))
+dotplot2 <- DotPlot(tn_subset, features = top3$gene, group.by = "RNA_snn_res.0.5") + coord_flip() + 
+  theme(axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=4))
+
+(dotplot1 / dotplot2) + plot_annotation(title="Dot plot para la expresión diferencial del top 3 genes de los niveles 1 y 2")
+
+ggsave("luad_val_autoprep_dotplotDE.png", plot = get_last_plot(), height=15, width = 18)
+```
+
+# Datos a partir del objeto seurat creado por los autores (sin previa creación del subconjunto)
+
+## Importación del objeto Seurat con counts y metadata
+
+Se descarga el objeto .RData `S03_Main_Seurat_object_filtered_and_subset_annotated.RData`. Este contiene el conjunto de datos completo del artículo incluyendo los datos adicionales (neo-osi) preprocesados y anotados en un objeto Seurat. Este objeto se llama `tiss_subset` y tiene información para 26485 genes de 23261 células. En este caso, se han hecho las reducciones dimensional del PCA y tSNE (no UMAP), para todo el conjunto de datos. En el reanálisis mostrado arriba, al volver a procesar todos los datos se hacía el subset para conseguir el subconjunto de datos de interés antes de calclar los PCs, por lo que el resultado final era diferente, así como el número de agrupaciones y el posicionamiento espacial de las células en los ejes.
+
+```{r}
+load("S03_Main_Seurat_object_filtered_and_subset_annotated.RData")
+tiss_subset
+```
+
+Si se observa el metadata, se encuentran dos columnas de interés para el estudio de este Trabajo Final: `driver_gene`que determina el nombre del gen *driver* para cada paciente y muestra; y la columna `driver_mutation` la cual tiene información sobre el tipo de mutación que se ha producido sobre cada uno de los genes *driver* detectados. En el dataset de referencia, se recogió la información sobre la mutación de EGFR en una varible llamada `EGFR_mutation_type` con la notación: WT, ex19del, ex21L858R, ex18, ex20. Se utilizará la información de la columna de este dataset de validación para generar la variable `EGFR_mutation_type` con la misma notación que el dataset de referencia. Se observa que en este conjunto de datos solo e observan las mutaciones de deleción en el exón 19 o la mutación puntual L858R del exón 21. Para el resto de muestras que no tienen mutaciones en EGFR se computa como "NA" el campo para esta columna.
+
+```{r}
+# Añadimos el metadata estandarizado para la información de la información de EGFR
+tiss_subset <- AddMetaData(tiss_subset, col.name = "EGFR_mutation_type", ifelse(tiss_subset@meta.data$driver_mutation == "del19" | tiss_subset@meta.data$driver_mutation == "Exon 19del", "ex19del", ifelse(tiss_subset@meta.data$driver_mutation == "L858R" | tiss_subset@meta.data$driver_mutation == "p.L858R", "ex21L858R", "NA")))
+```
+
+## Agrupamiento y UMAP
+
+Se puede observar que se han buscado los clusteres para diferentes valores de resolución, entre ella resolución 0.5. Para coincidir con el artículo de los datos de referencia, se calcula el número de clusters también para el nivel 1 con 0.02 de resolución. En este caso, en vez de 5 clusters para el nivel 1, como sucedía en los datos autoprocesados, se encuentran 11 clusters; mientras que para la resolución de 0.5 (nivel 2) se encuentran 26 clusters en vez de 18.
+
+```{r}
+# Cálculo de clusters con una resolución del 0.02
+tiss_subset <- FindClusters(object = tiss_subset, verbose = T, resolution = 0.02)
+```
+
+A continuación, se calcula la reducción de dimensiones UMAP utilizando 20 dimensiones y a partir del PCA previamente calculado. Los clusters generados se pueden observar según las agrupaciones producidas directamente o con las anotaciones realizadas por los autores.
+
+```{r}
+# UMAP
+tiss_subset <- RunUMAP(tiss_subset, reduction = "pca", dims = 1:20)
+
+# Visualizamos los clusters de nivel 1 y 2
+d1 <- DimPlot(tiss_subset, reduction="umap", group.by = "RNA_snn_res.0.02") + theme_bw() + NoLegend() + labs(title="UMAP con los agrupamientos de nivel 1")
+d2 <- DimPlot(tiss_subset, reduction="umap", group.by = "RNA_snn_res.0.5") + theme_bw() + NoLegend() + labs(title="UMAP con los agrupamientos de nivel 2")
+d3 <- DimPlot(tiss_subset, reduction="umap", group.by = "general_annotation") + theme_bw() + labs(title="UMAP con las anotaciones generales de los autores (3 grupos)")
+d4 <- DimPlot(tiss_subset, reduction="umap", group.by = "general_annotation1") + theme_bw() + labs(title="UMAP con las anotaciones generales de los autores (6 grupos)")
+
+((d1+d2)/(d3+d4)) + plot_annotation(title="Distribución celular UMAP con las notaciones originales de los autores a dos niveles")
+
+ggsave("luad_val_authors_UMAP_prefilter.png", plot = get_last_plot(), height=15, width = 17)
+```
+
+Se puede observar que las anotaciones generales producidas por los autores para el objeto Seurat completo no entra en detalle para cada tipo celular. En el estudio, se separan las poblaciones inmunes y no inmunes, se reclusterizan y se anotan con más detalle posteriormente. En este caso, para este Trabajo Final se necesita el dataset general, por lo que se va a proceder como en el caso anterior, cuando se han reprocesado todos los datos a partir del contaje de datos inicial y crudo.
+
+## Creación de los subconjuntos de datos
+
+Para realizar los proximos pasos, primero se creará el subconjunto de los datos de interés. Se generará un conjunto general con todos los datos para los pacientes con LUAD y no tratados (TN, *treatment naive*). Asimismo, se eliminarán las muestras que presenten la mutación BRAF para analizar únicamente las mutaciones estudiadas en este TF (EGFR como mutación principa, y KRAS y ALK como comparativas).
+
+```{r}
+tiss_subset_interest <- subset(tiss_subset, subset = biopsy_time_status == "off treatment" | analysis == "naive")
+tiss_subset_interest <- subset(tiss_subset_interest, subset = driver_gene != "BRAF")
+
+#saveRDS(tiss_subset_interest, "tiss_subset_interest.rds")
+tiss_subset_interest <- readRDS("tiss_subset_interest.rds")
+```
+
+## Control de calidad
+
+Se repiten las visualizaciones de los clusters, esta vez solamente para los datos filtrados y se hace el control de calidad en base a los identificadores de pacientes y otras variables de interés que se analizaron en los datos de referecia como el sexo.
+
+```{r}
+# Visualizamos los clusters de nivel 1 y 2
+d1 <- DimPlot(tiss_subset_interest, reduction="umap", group.by = "RNA_snn_res.0.02") + theme_bw() + NoLegend() + labs(title="UMAP con los agrupamientos de nivel 1")
+d2 <- DimPlot(tiss_subset_interest, reduction="umap", group.by = "RNA_snn_res.0.5") + theme_bw() + NoLegend() + labs(title="UMAP con los agrupamientos de nivel 2")
+d3 <- DimPlot(tiss_subset_interest, reduction="umap", group.by = "general_annotation") + theme_bw() + labs(title="UMAP con las anotaciones generales de los autores (3 grupos)")
+d4 <- DimPlot(tiss_subset_interest, reduction="umap", group.by = "general_annotation1") + theme_bw() + labs(title="UMAP con las anotaciones generales de los autores (6 grupos)")
+
+((d1+d2)/(d3+d4)) + plot_annotation(title="Distribución celular UMAP con las notaciones originales de los autores a dos niveles para los pacientes TN")
+
+ggsave("luad_val_tn_UMAP.png", plot = get_last_plot(), height=15, width = 17)
+```
+
+Primero, se corrige el metadata para el sexo ya que la cateoría para mujer se ha computado dos veces (una con mayúscula y una con minúscula), para que tanto `female` como `Female` sean la misma categoría `Female`.
+
+```{r}
+# Corregimos la columna gender del metadata
+tiss_subset_interest@meta.data <- tiss_subset_interest@meta.data %>% mutate(gender = ifelse(gender != "Male", "Female", "Male"))
+
+#saveRDS(tiss_subset_interest, "tiss_subset_interest.rds")
+tiss_subset_interest <- readRDS("tiss_subset_interest.rds")
+```
+
+A continuación, se hace el control de calidad. Podría estarse dando batch effect causado ya que las células parecen dividirse según pacientes / mutación / sexo.
+
+```{r}
+# Control de calidad según identificador del paciente, el gen driver y el sexo
+qc1 <- DimPlot(tiss_subset_interest, reduction = "pca", dims = c(1,2), group.by = "patient_id", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title="Estudio de efecto batch por PCA según el paciente")
+qc2 <- DimPlot(tiss_subset_interest, reduction = "umap", group.by = "patient_id", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title="Estudio de efecto batch por UMAP según el paciente")
+qc3 <- DimPlot(tiss_subset_interest, reduction = "umap", group.by = "RNA_snn_res.0.5", split.by = "patient_id", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title = "Distribución celular de nivel 2 para cada paciente del subconjunto de datos")
+qc4 <- DimPlot(tiss_subset_interest, reduction = "umap", group.by = "driver_gene", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + labs(title = "Distribución celular según el gen driver")
+qc5 <- DimPlot(tiss_subset_interest, reduction = "umap", group.by = "gender", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + labs(title="Distribución celular según el sexo")
+qc6 <- DimPlot(tiss_subset_interest, reduction = "umap", group.by = "RNA_snn_res.0.5", split.by = "driver_gene", label = FALSE, repel = TRUE, raster = FALSE) + theme_bw() + NoLegend() + labs(title = "Distribución celular de nivel 2 para cada subgrupo según el gen driver")
+
+((qc1 + qc2) / qc3 / (qc4 + qc5) / qc6) + plot_annotation(title="Distribución celular y control de calidad según diferentes variables")
+
+ggsave("luad_val_tn_qc.png", plot = get_last_plot(), width = 17, height = 18, dpi = 300)
+```
+
+## Anotaciones
+
+Para hacer las anotaciones se utilizará la misma estrategia presentada en el reanálisis de los datos de validación. En este caso, no es necesario utilizar la función `JoinLayers()` para juntar las capas y buscar los marcadores de expresión diferencial. Se selecciona el top 3 de genes diferenciales para cada cluster mediante las funciones `group_by()` y `top_n()`, y se estudia su expresión en cada uno de los clusters representandolos mediante `DoHeatmap()` o `DotPlot()`.
+
+```{r}
+# Buscamos los marcadores positivos para cada cluster
+tiss_subset_markers <- FindAllMarkers(object = tiss_subset_interest, 
+                                    only.pos = TRUE, min.pct = 0.25, 
+                                    thresh.use = 0.25, 
+                                    do.print=T, max.cells.per.ident = 500)
+
+# Generamos una tabla con los marcadores diferenciales
+#write.table(tiss_subset_markers, "tiss_seurat_DE_markers.csv")
+tiss_subset_markers <- read.csv("tiss_seurat_DE_markers.csv", sep="")
+
+# Buscamos el top 3 genes
+top3 <- tiss_subset_markers %>% group_by(cluster) %>% top_n(3, avg_log2FC)
+
+heatmap1 <- DoHeatmap(tiss_subset_interest, group.by="RNA_snn_res.0.02",features = top3$gene, raster = F, label = F) + NoLegend() +
+  theme(
+    axis.text.y = element_text(size=5)
+  )
+heatmap2 <- DoHeatmap(tiss_subset_interest, group.by="RNA_snn_res.0.5",features = top3$gene, raster = F, label = F) + NoLegend() +
+  theme(
+    axis.text.y = element_text(size=5)
+  )
+
+(heatmap1/heatmap2) + plot_annotation(title="Heatmap para la expresión diferencial del top 3 genes para los clusters de nivel 1 y 2")
+
+ggsave("luad_val_heatmapDE.png", plot = get_last_plot(), height=15, width = 19)
+
+# Representación de la expresión de los genes de interés por cluster 
+dotplot1 <- DotPlot(tiss_subset_interest, features = top3$gene, group.by = "RNA_snn_res.0.02") + coord_flip() +
+  theme(axis.text.y = element_text(size=4))
+dotplot2 <- DotPlot(tiss_subset_interest, features = top3$gene, group.by = "RNA_snn_res.0.5") + coord_flip() + 
+  theme(axis.text.x = element_text(size=8),
+        axis.text.y = element_text(size=4))
+
+(dotplot1 / dotplot2) + plot_annotation(title="Dot plot para la expresión diferencial del top 3 genes de los niveles 1 y 2")
+
+ggsave("luad_val_dotplotDE.png", plot = get_last_plot(), height=15, width = 18)
+```
+
+
+
+
+
