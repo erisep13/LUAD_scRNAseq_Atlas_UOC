@@ -87,38 +87,78 @@ qc8 <- DimPlot(luad_atlas, reduction = 'umap.ref', group.by = 'Stage', split.by=
 ggsave("atlas_confounding.png", plot = get_last_plot(), height=18, width = 16)
 ```
 
+## Proporciones y descripción de los datos
 
-
-
-
-
-Se calculan las frecuencias para cada nivel dentro de las variables para poder estudiar la representación de cada grupo confusor. Respecto al estudio de origen, el 67.17% de las muestras provienen del estudio GSE136246 frente al 31.04% de GSE131907 y el 1.79% de GSE153935. Para los dos estudios mayoritarios los porcentajes representan asimismo la representación de las mutaciones KRAS y EGFR en el dataset de referencia, ya que las muestras pertenecen solamente a esos subgrupos de mutación tal y como se observó en gráficos previos. Respecto al estadio tumoral, se observa un 59.01% de muestras en estadio I y un 40.98% de muestras en estadio III. Finalmente, respecto al sexo, el dataset contiene un 40.51% de mujeres y un 57.7% de hombres.
+Para el dataset completo, se calculan las frecuencias de cada nivel de las variables de más interés para la descripción de los datos: sexo, estadio tumoral y gen *driver*. En el conjunto de datos prevalecen las células provenientes de hombres en un 55.98% (vs. 42.38% de mujeres), las células de tumoresen estadio I en un 54.79% (vs. 40.8% de estadio III y 4.4% de estadio IV), y las células con mutación *driver* en KRAS en un 62.36% (vs. 34.96% de EGFR y 2.67% de ALK).
 
 ```{r}
-# Calculamos las proporciones de las variables confusoras
-prop.table(table(luad_reference$Study))
-prop.table(table(luad_reference$Stage))
-prop.table(table(luad_reference$Gender))
+# Calculamos las proporciones de las principales variables confusoras
+prop.table(table(luad_atlas$Gender))
+prop.table(table(luad_atlas$Stage))
+prop.table(table(luad_atlas$driver_gene))
 ```
 
-Si se observa esta misma representación para los datos de interés principal de este estudio; es decir, las muestras con mutaciones driver en EGFR, se observa lo siguiente: (1) predominan las muestras provenientes del estudio GSE131907 (95.18% vs. 4.82%); (2) hay una mayor representación masculina (75.48% vs. 19.7%); y (3) predominan las mustras con mutaciones de la deleción del exón 19 (39.34% vs. 20.85% de mutaciones en el exon 20 vs. 22.53% de mutaciones L858R del exón 21).
- 
+Dado que el principal objetivo de este Trabajo Finales analizar las células con mutaciones *driver* en EGFR, se han generado subconjuntos de datos para cada mutación identificada, de manera que se pueden describir los datos por separado, utilizando los subconjuntos de KRAS y ALK para las comparativas. Así, para los datos de principal interés para LUAD producido por mutacionesen EGFR se observa lo siguiente: (1) el 81.74% de las células analizadas provienen del estudio GSE131907, (2) el 68.89% de las células pertenecen a pacientes varones (frente a 26.97% de mujeres), (3) el 87.7% provienen de tumores en estadio I (vs. 8.31% de estadio III y 4.13% de estadio IV), y (4) la mutación de EGFR que se ha descrito predominantemente en los datos recogidos ha sido la deleción del exón 19 en un 43.27% (frente a la mutación L858R del exón 21 en un 23.99%, mutaciones del exón 20 en un 17.9%, y mutaciones no identificadas en un 14.84%).
+
 ```{r}
 # Calculamos las proporciones de las variables confusoras solo para EGFR
-
-
-prop.table(table(egfr_reference$Study))
-prop.table(table(egfr_reference$Stage))
-prop.table(table(egfr_reference$Gender))
-prop.table(table(egfr_reference$EGFR_mutation_type))
+prop.table(table(egfr_atlas$Study))
+prop.table(table(egfr_atlas$Gender))
+prop.table(table(egfr_atlas$Stage))
+prop.table(table(egfr_atlas$EGFR_mutation_type))
 ```
 
-En el caso de las mutaciones KRAS, se observa que se han manifestado en tumores en estadíos I y III y se distribuyen de forma similar entre los estadios y los géneros, siendo todos ellos del subtipo LUAD. Para las células con mutaciones en KRAS se ha obtenido un dataset más proporcionado. Predominan los tumores en estado III frente a I (60.7% vs. 39.3%), pero apenas hay diferencias de proporción respecto al género (50.74% mujeres vs. 49.25% hombres). Para las células con mutaciones driver en ALK no se calculan las frecunecias porque todas ellas pertenecen, por ahora, a un único paciente. 
+En el caso de las mutaciones KRAS, se observa que se han manifestado en tumores en estadíos I, III y IV; y se distribuyen de forma similar entre losdossexos. Predominan las células provenientes de tumores en estado III en un 60.18% (frente a 38.97% de estadio I y 0.84% de estadio Iv), y apenas hay diferencias de proporción respecto al género (51.16% mujeres vs. 48.83% hombres). Para las células provenientes de pacientes con mutación *driver* en ALK predominan las provenientes de muestras de varones en un 53.6% (frente a 39.01% de mujeres y 7.39% no registradas), y en un 92.61% las células de tumores en estadio IV (frente a 7.39% de estadio III).
 
 ```{r}
 # Calculamos las proporciones de las variables confusoras para las muestras de KRAS
-kras_reference <- subset(luad_reference, subset = driver_gene == "KRAS")
-prop.table(table(kras_reference$Stage))
-prop.table(table(kras_reference$Gender))
+prop.table(table(kras_atlas$Gender))
+prop.table(table(kras_atlas$Stage))
+
+# Para ALK
+prop.table(table(alk_atlas$Gender))
+prop.table(table(alk_atlas$Stage))
 ```
+
+# Distibución celular
+
+A continuación, se estudia la distribución celular en los niveles 1 y 2 utilizando las anotaciones generadas por el artículo de referencia y utilizando la reducción de `umap.ref`. Al igual que en el artículo de referencia se identifican 9 clústeres para el nivel 1 (resolución de 0.02) y 27 para el nivel 2 (resolución de 0.5). Se puede asimismo dividir las distribuciones únicamente para EGFR dependiendo de la mutación que presente.
+
+```{r}
+# Distribución celular de nivel 1 para el dataset de referencia
+level1.1 <- DimPlot(luad_atlas, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', shuffle = TRUE, raster=FALSE, label = T) +
+  labs(title="Distribución celular de nivel 1 para LUAD") +
+  theme_bw() + NoLegend()
+level1.2 <- DimPlot(luad_atlas, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', split.by="driver_gene", shuffle = TRUE, raster=FALSE, label = T) +
+  labs(title="Distribución celular de nivel 1 para LUAD según el gen driver") +
+  theme_bw()
+
+# Distribución celular de nivel 2
+level2.1 <- DimPlot(luad_atlas, reduction = 'umap.ref', group.by = 'Cell_Cluster_level2', shuffle = TRUE, raster=FALSE, label = T, label.size=3) + 
+  labs(title="Distribución celular de nivel 2 para LUAD") + 
+  theme_bw() + NoLegend()
+level2.2 <- DimPlot(luad_atlas, reduction = 'umap.ref', group.by = 'Cell_Cluster_level2', split.by="driver_gene", shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular de nivel 2 para LUAD según el gen driver") +
+  theme_bw()
+
+# Distribución en base a las mutaciones de EGFR
+level1.egfr <- DimPlot(egfr_atlas, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', split.by="EGFR_mutation_type", shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular de nivel 1 para LUAD con EGFR driver según su tipo de mutación") +
+  theme_bw() + NoLegend()
+level2.egfr <- DimPlot(egfr_atlas, reduction = 'umap.ref', group.by = 'Cell_Cluster_level2', split.by="EGFR_mutation_type", shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular de nivel 2 para LUAD con EGFR driver según su tipo de mutación") +
+  theme_bw() + NoLegend()
+
+((level1.1+level1.2)/(level2.1+level2.2)/level1.egfr/level2.egfr) + plot_annotation(title="Distribución celular de nivel 1 y 2 para los datos de referencia")
+
+ggsave("atlas_celdist.png", plot = get_last_plot(), height=15, width = 20)
+```
+
+
+
+
+
+
+
+
 
