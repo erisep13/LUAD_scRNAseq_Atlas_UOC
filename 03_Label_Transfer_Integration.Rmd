@@ -1,0 +1,199 @@
+---
+title: "Label Transfer and Final Dataset obtention"
+author: "Erise Pérez Pascual"
+date: "2025-12-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+```
+
+En este documento Rmd se obtiene el dataset final que integra los datos del dataset de referencia obtenido a partir del estudio de Parzanowska, K. H. & Lim, S. B., 2023, y el dataset de validación obtenido desde el estudio de Maynard, A. *et al.*, 2020. Para la integración se hará una transferencia de las etiquetas o anotaciones del dataset de referencia hacia el dataset de validación y, finalmente, se integrarán todos los datos en un único dataset final que se utilizará para la construcción del atlas transcriptómico objetivo de este Trabajo Final. 
+
+# Importación de los datos
+
+Se cargan los objetos Seurat preprocesados y filtrados anteriormente. Ambos objetos tienen información de pacientes de LUAD con mutaciones driver en el gen de interés EGFR y dos genes más para comparar, KRAS y ALK. El objeto de referencia recoge 7 pacientes con mutación driver en EGFR, 8 pacientes con mutación en KRAS y 1 paciente con mutación en ALK. El objeto de validación contiene 7 pacientes (8 muestras) con mutación en EGFR, 1 en KRAS y 3 pacientes (4 muestras) en ALK.
+
+```{r}
+# Cargamos el archivo de referencia
+luad_reference <- readRDS("luad_reference.rds")
+
+# Cargamos el objeto Seurat de validación
+luad_validation <- readRDS("tiss_subset_interest.rds")
+```
+
+# Label transfer
+
+## Preparación del objeto e referencia
+
+Se define el dataset `luad_reference` como referencia y `luad_validation` como *query* para todo el proceso de transferencia de etiquetas. Antes de comenzar, se buscan los genes altamente variables con la función `FindVariableFetures()` para el dataset de referencia.
+
+```{r}
+# Búsqueda de los genes altamente variables
+luad_reference <- FindVariableFeatures(luad_reference, x.high.cutoff=Inf, y.cutoff=0.5)
+```
+
+Además, es necesario recalcular el UMAP añadiendo el argumento `return.model=TRUE`. En caso contrario, el nuevo modelo no se guarda y la transferencia de etiquetas no funciona.
+
+```{r}
+# Recálculo del UMAP
+luad_reference <- RunUMAP(luad_reference, 
+                          reduction = "pca", 
+                          dims = 1:30,
+                          return.model = TRUE
+)
+```
+
+## Búsqueda de anclas y proyección
+
+Con esto, se puede comenzar la transferencia de etiquetas. Primero, se identifican las anclas de transferencia utilizando la reducción de PCA y 30 dimensiones. Para ello, se utiliza la función `FindTransferAnchors()`. Este proceso determina que se han encontrado 3852 anclas para la transferencia.
+
+```{r}
+# Identificaión de las anclas de transferencia
+anchors <- FindTransferAnchors(
+  reference = luad_reference,
+  query = luad_validation,
+  normalization.method = "LogNormalize",
+  reference.reduction = "pca",
+  dims = 1:30
+)
+```
+
+A continuación, se utiliza la función `MapQuery()` para proyectar el dataset de validación sobre la estructura UMAP de la referencia. Se pueden visualizar las agrupaciones para los dos niveles.
+
+```{r}
+# Transferencia / proyección de las etiquetas
+query <- MapQuery(
+  anchorset = anchors,
+  query = luad_validation,
+  reference = luad_reference,
+  refdata = list(
+    celltypel1 = luad_reference$Cell_Cluster_level1,
+    celltypel2 = luad_reference$Cell_Cluster_level2),
+  reference.reduction = "pca",
+  reduction.model = "umap"
+  )
+
+# Representación de las agrupaciones tras la transferencia de etiquetas
+luad_validation <- query
+
+p1 <- DimPlot(luad_reference, reduction = "umap", group.by = "Cell_Cluster_level1", label = FALSE,
+    repel = TRUE) + theme_bw() + NoLegend() + labs(title="Agrupación de nivel 1 para los datos de referencia")
+p2 <- DimPlot(luad_validation, reduction = "ref.umap", group.by = "predicted.celltypel1", repel = TRUE) + theme_bw() +
+  labs(title="Agrupación de nivel 1 para la proyección de los datos de validación")
+p3 <- DimPlot(luad_reference, reduction = "umap", group.by = "Cell_Cluster_level2", label = FALSE,
+    repel = TRUE) + theme_bw() + labs(title="Agrupación de nivel 2 para los datos de referencia")
+p4 <- DimPlot(luad_validation, reduction = "ref.umap", group.by = "predicted.celltypel2", repel = TRUE) + theme_bw() +
+  labs(title="Agrupación de nivel 2 para la proyección de los datos de validación")
+
+((p1 + p2)/(p3+p4)) + plot_annotation(title="Agrupación de nivel 1 y 2 para los datos de referencia y validación tras la transferencia de etiquetas")
+
+ggsave("label_transfer.png", plot = get_last_plot(), height=15, width = 16)
+```
+
+Para el nivel 1, tras la transferencia de etiquetas se consigue el mismo número de clusters en el dataset de validación que en el de referencia, 9 clusters. Sin embargo, para la agrupación de nivel 2, mientras que en el dataset de referencia se obtenían 27 clusters, en el de validación solamente se han identificado 22. Esto puede deberse a que el dataset de validación tiene un número de células mucho más reducido.
+
+## Evaluación de las predicciones
+
+Para evaluar las predicciones se utiliza el *score* de predicción calculado al realizar la transferencia de etiquetas y se hace con ello un `FeaturePlot()`.
+
+```{r}
+# Para el nivel 1
+
+# Cambio del ensayo por defecto
+DefaultAssay(luad_validation) <- "prediction.score.celltypel1"
+
+# Visualización de la evaluación de las predicciones
+FeaturePlot(luad_validation, features = c("T", "B", "Plasma", "Myeloid", "Mast", "Endothelial",
+                                          "Cancer", "Ciliated", "Fibroblasts"),
+            reduction = "ref.umap", cols = c("lightgrey", "darkred"), ncol=3)
+
+ggsave("prediction_level1.png", plot = get_last_plot(), height=14, width = 12)
+
+# Para el nivel 2
+
+# Cambio del ensayo por defecto
+DefaultAssay(luad_validation) <- "prediction.score.celltypel2"
+
+# Visualización de la evaluación de las predicciones
+FeaturePlot(luad_validation, features =  c("Proliferating T/NK", "NK",
+                                       "Naive T","CD8+ Tem", 
+                                       "CD4+ Treg", "Mature naive B",
+                                       "Plasma","pDCs",
+                                       "cDC2/moDCs", "Mast",
+                                       "Monocytes","Low quality Mac",
+                                       "Lipid-associated Mac", 
+                                       "Alveolar Mac",
+                                       "Proliferating Mac",
+                                       "Neutrophils", "CDKN2A Cancer",
+                                       "SOX2 Cancer",
+                                       "CXCL1 Cancer", 
+                                       "LAMC2 Cancer",
+                                       "Proliferating Cancer",
+                                       "Pathological Alveolar", 
+                                       "Alveolar","Ciliated",
+                                       "CAF","SMC", "Endothelial"),
+            reduction = "ref.umap", cols = c("lightgrey", "darkred"), ncol=4)
+
+ggsave("prediction_level2.png", plot = get_last_plot(), height=20, width = 14)
+```
+
+Luego, se filtran las células en base a la puntuación de prdicción, eliminando las células que tienen menos de 0.50 de puntuación predictiva.
+
+```{r}
+# Filtro de células con baja calidad predictiva
+luad_validation <- subset(luad_validation, subset = predicted.celltypel1.score > 0.50 & predicted.celltypel2.score > 0.50)
+
+
+#saveRDS(luad_validation, "luad_validation.rds")
+luad_validation <- readRDS("luad_validation.rds")
+#saveRDS(luad_reference, "luad_reference.rds")
+luad_reference <- readRDS("luad_reference.rds")
+```
+
+# Obtención del dataset final
+
+## Estandarización del metadata
+
+Finalmente, se juntan los dos datasets para formar un conjunto de datos mayor, el dataset final. Para ello, primero se estandarizan los nombres de las variables de interés en el metadata. En el caso del estadio, los datos de validación incluyen IA/B o IIIA/B, los cuales se reducirán únicamente a I o III.
+
+```{r}
+# Estandarización del metadata
+luad_reference$id <- "Reference"
+luad_validation$id <- "Validation"
+
+colnames(luad_validation@meta.data)[colnames(luad_validation@meta.data) == "patient_id"] <- "Patient"
+colnames(luad_validation@meta.data)[colnames(luad_validation@meta.data) == "gender"] <- "Gender"
+luad_validation@meta.data <- luad_validation@meta.data %>% mutate(Gender = ifelse(Gender == "Male", "M", "F"))
+colnames(luad_validation@meta.data)[colnames(luad_validation@meta.data) == "histolgy"] <- "Subtype"
+luad_validation@meta.data <- luad_validation@meta.data %>% mutate(Subtype = ifelse(Subtype == "Adenocarcinoma", "LUAD", "NA"))
+colnames(luad_validation@meta.data)[colnames(luad_validation@meta.data) == "stage.at.dx"] <- "Stage"
+luad_validation@meta.data <- luad_validation@meta.data %>% mutate(Stage = ifelse(Stage == "IA" | Stage == "I", "I", ifelse(Stage == "IIIA" | Stage == "IIIB", "III", "IV")))
+luad_validation$Study <- "czbiohub"
+colnames(luad_validation@meta.data)[colnames(luad_validation@meta.data) == "predicted.celltypel1"] <- "Cell_Cluster_level1"
+colnames(luad_validation@meta.data)[colnames(luad_validation@meta.data) == "predicted.celltypel2"] <- "Cell_Cluster_level2"
+```
+
+## Obtención del dataset final
+
+Una vez procesados los datasets por separados, se ha obtenido la proyección del UMAP de referencia sobre el de validación. Para conseguir el dataset final con todos los datos, se unen ambos datasets a través de la función `merge()`. En ese momento, se pierden las reducciones dimensionales; es decir, el nuevo objeto final ha perdido el "umap" y el "pca". Por ello, en vez de calcular de nuevo todo, lo cuál generaría una nueva proyección, se crea un nuevo objeto de reducción con la función `CreateDimReductionObject()`, utilizando como `embeddings` los objetos de reducción de UMAP del objeto de referencia ("umap" para el dataset de referencia y "ref.umap" para el de validación). De esta manera, se obtienen las proyecciones sobre el espacio dimensional generado para la referencia y proyectado para la validación en el conjunto de datos completos. Esta reducción se guarda en el objeto final como "umap.ref". El objeto final tiene información para 75513 genes en 61228 células para 27 pacientes.
+
+```{r}
+# Obtención del dataset final
+final_data_tfm <- merge(luad_reference, luad_validation)
+
+# Adición de los objetos de reducción
+final_data_tfm[["pca.ref"]] <- CreateDimReducObject(embeddings = rbind(luad_reference[["pca"]]@cell.embeddings, luad_validation[["ref.pca"]]@cell.embeddings), key = "pca_", assay = DefaultAssay(final_data_tfm))
+final_data_tfm[["umap.ref"]] <- CreateDimReducObject(embeddings = rbind(luad_reference[["umap"]]@cell.embeddings, luad_validation[["ref.umap"]]@cell.embeddings), key = "UMAP_", assay = DefaultAssay(final_data_tfm))
+
+saveRDS(final_data_tfm, "final_data_tfm.rds")
+```
+

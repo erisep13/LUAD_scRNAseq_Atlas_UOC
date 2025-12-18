@@ -1,0 +1,236 @@
+---
+title: "Final data paper reproduction"
+author: "Erise Pérez Pascual"
+date: "2025-10-01"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r, warning = FALSE, message = FALSE}
+# Cargamos los paquetes estándar
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(cowplot)
+library(ggplot2)
+
+# Carga y descarga de ProjecTILs
+#library(remotes)
+#library(BiocManager)
+#BiocManager::install(c("BiocNeighbors", "BiocParallel", "UCell"))
+#remotes::install_github("carmonalab/STACAS")
+#remotes::install_github("carmonalab/ProjecTILs")
+#library(ProjecTILs)
+
+# Carga y desarga de monocle3
+#BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
+                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
+                       'ggrastr'))
+#remotes::install_github("bnprks/BPCells/r")
+#install.packages("cli", dependencies=T)
+#devtools::install_github('cole-trapnell-lab/monocle3') #devtools necesita RTools para compilar
+#library(monocle3)
+```
+
+# Adición de nuevo metadata con información sobre mutaciones driver
+
+## Carga de datos
+
+Cargamos el objeto Seurat del dataset final de Parzanowska, K. H. & Lim, S. B. (2023). Este dataset contiene 224611 células de muestras de NSCLC (LUAD + LUSC) con 18 columnas columnas.
+
+```{r}
+# Load Large Seurat object of final dataset
+final_data <- readRDS("refquery_final.rds")
+final_data@meta.data
+```
+
+
+# Replicación de las figuras el paper de referencia
+
+## Carga de datos y preparación del metadata
+
+Los datos se cargan en el objeto `final_data`.
+
+Debido a la naturaleza de los objetos Seurat, la conversión a factor no es 100% obligatoria.
+
+```{r}
+# Para versiones superiores de RStudio es necesario convertir los NA en variable para que DimPlot no los elimine
+final_data$Stage[is.na(final_data$Stage)] <- "NA"
+final_data$Subtype[is.na(final_data$Subtype)] <- "NA"
+final_data$Gender[is.na(final_data$Gender)] <- "NA"
+
+# Convert to factor if necessary
+final_data@meta.data$Patient <- factor(final_data@meta.data$Patient)
+final_data@meta.data$Gender <- factor(final_data@meta.data$Gender)
+final_data@meta.data$Subtype <- factor(final_data@meta.data$Subtype)
+final_data@meta.data$Stage <- factor(final_data@meta.data$Stage)
+final_data@meta.data$Study <- factor(final_data@meta.data$Study)
+final_data@meta.data$id <- factor(final_data@meta.data$id)
+final_data@meta.data$Cell_Cluster_level1 <- 
+  factor(final_data@meta.data$Cell_Cluster_level1)
+final_data@meta.data$Cell_Cluster_level2 <- 
+  factor(final_data@meta.data$Cell_Cluster_level2)
+```
+
+## QC y batch effect
+
+Correspondiendo al apartado *Visualization and batch effect correction and final dataset quality* de **Materiales y métodos**.
+
+Primero, los violin plots de las métricas de control de calidad aplicadas durante el preprocesamiento de los siete datasets, incluyendo el porcentaje de genes mitocondriales `Percent_mt` y el número de genes detectados en cada célula `nFeature_RNA`, divididos por estudio.
+
+```{r}
+# Violin plots of QC metrics of cells including percentage of counts of mitochondrial genes and number of genes split by study
+VlnPlot(final_data, "nFeature_RNA", group.by = "Study", raster=F, pt.size=0)
+VlnPlot(final_data, "Percent_mt", group.by = "Study", raster=F, pt.size=0)
+#features = Percent_mt
+```
+
+Para observar la corrección del efecto batch en el objeto Seurat generado por integración se utiliza la visualización por PCA. Los datos finales corregidos se cubren entre los datasets de origen, lo que sugiere que el efecto de las variaciones no biológicas se ha corregido. Cuando el batch effect no ha sido corregido, las células se separan según el estudio de origen y no por el tipo celular. Cuando se hace la corrección, las células se distribuyen igualitariamente en todos los clusters de acuerdo al estudio de origen.
+
+```{r}
+# Removal of batch effect presented by PCA
+DimPlot(final_data, reduction = "pca", dims = c(1, 2), group.by = "Study", raster = FALSE) + theme_bw()
+
+# Removal of batch effect presented by dimensional reduction plot UMAP
+DimPlot(final_data, reduction = "umap.ref", dims = c(1, 2), group.by = "Study", raster = FALSE) + NoLegend()
+```
+
+Adicionalmente, se puede observar que no se dan efectos tipo batch relacionados con ninguna de las otras variables del metadata, ya que se da una distribución similar de los tipos celulares en todos los clusters independientemente de el estadio tumoral o el género.
+
+```{r}
+# Quality control of the final dataset
+#group.by = Study/Stage/Subtype/Gender/Cell_Cluster_level2/etc.
+
+# Check distribution by 'id'
+DimPlot(final_data, reduction = 'umap.ref', group.by = 'id', shuffle = TRUE, raster=FALSE, label = F) + theme_bw() #combine=F evita errores de R por group_by
+
+# Check distribution by 'Study'
+DimPlot(final_data, reduction = 'umap.ref', group.by = 'Study', shuffle = TRUE, raster=FALSE, label = F) + theme_bw()
+
+# Check distribution by 'Stage'
+DimPlot(final_data, reduction = 'umap.ref', group.by = 'Stage', shuffle = TRUE, raster=FALSE, label = F) + theme_bw()
+
+# Check distribution by 'Subtype'
+DimPlot(final_data, reduction = 'umap.ref', group.by = 'Subtype', shuffle = TRUE, raster=FALSE, label = F) + theme_bw()
+
+# Check distribution by 'Gender'
+DimPlot(final_data, reduction = 'umap.ref', group.by = 'Gender', shuffle = TRUE, raster=FALSE, label = F) + theme_bw()
+```
+
+## Distribución de células
+
+Caracterización de los tipos celulares presentes en el dataset final con una resolución del 0.02 (level1, con 9 tipos celulares), y del 0.5 (level2, con 27 tipos celulares).
+
+```{r}
+# Check distribution by 'Cell_Cluster_level1'
+DimPlot(final_data, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', shuffle = TRUE, raster=FALSE, label = T) + theme_bw() # reduction="umap.ref" for exact reproduction of paper figs
+
+# Check distribution by 'Cell_Cluster_level2'
+DimPlot(final_data, reduction = 'umap.ref', group.by = 'Cell_Cluster_level2', shuffle = TRUE, raster=FALSE, label = F) + theme_bw()
+```
+
+---
+
+Se puede observar la distribución de las células de forma separada en los siete datasets analizados en los clusters del dataset final.
+
+```{r, include=TRUE, eval=FALSE}
+# UMAP plot of the cells of the final dataset split by study of origin to observe the placement of cells of each dataset
+DimPlot(final_data, reduction = "umap.ref", split.by = "Study", raster = F) + theme_bw() + NoLegend()
+```
+
+La expresión de los genes marcadores se puede visualizar mediante violin plots.
+
+```{r, include=TRUE, eval=FALSE}
+#Visualization of markers for level 2 annotation
+final_data$Cell_Cluster_level2 <-
+  factor(final_data$Cell_Cluster_level2, 
+                             levels= c("Proliferating T/NK", "NK",
+                                       "Naive T","CD8+ Tem", 
+                                       "CD4+ Treg", "Mature naive B",
+                                       "Plasma","pDCs",
+                                       "cDC2/moDCs", "Mast",
+                                       "Monocytes","Low quality Mac",
+                                       "Lipid-associated Mac", 
+                                       "Alveolar Mac",
+                                       "Proliferating Mac",
+                                       "Neutrophils", "CDKN2A Cancer",
+                                       "SOX2 Cancer",
+                                       "CXCL1 Cancer", 
+                                       "LAMC2 Cancer",
+                                       "Proliferating Cancer",
+                                       "Pathological Alveolar", 
+                                       "Alveolar","Ciliated",
+                                       "CAF","SMC", "Endothelial"))
+# Rename Idents
+Idents(final_data) <- "Cell_Cluster_level2"
+
+# We define a gene vector
+genes_level2<- c("CD3G","CDCA5","FGFBP2","TRDC","CCR7","IL7R","GZMK","CD8A","FOXP3","IL2RA","MS4A1","BANK1","IGHG2","MZB1","LILRA4","IL3RA","CD1C","CD1A","MS4A2","GATA2","FCN1","CD300E","APOE","C1QA","PLA2G7","ABCA1","FABP4","MARCO","PCLAF","CSF1R","CXCR2","AQP9","CDKN2A","CXCL14","SOX2","UCHL1","SPRR1B","CXCL1","LAMC2","TFF1","ECT2","EGFR","SPINK1","MET","SFTPD","ABCA3","FAM183A","CAPS","MMP2","CTHRC1","RGS5","PPP1R14A","CLDN5") #eliminate VCF since it's not in the object
+
+# Check if any is absent in object
+genes_level2[!genes_level2 %in% rownames(final_data)]
+
+# Visualize
+VlnPlot(final_data, features = genes_level2, raster = F, combine=T, pt.size=0, stack=T, flip=T, fill.by = "ident") +
+  theme(
+    axis.text.y = element_text(size=5),
+    axis.text.x = element_text(size=6))+
+  NoLegend()
+
+#continue with level1 annotation
+final_data$Cell_Cluster_level1 <- 
+  factor(final_data$Cell_Cluster_level1, levels=c("T", "B", "Plasma",
+                                                  "Myeloid", "Mast",
+                                                  "Endothelial", 
+                                                  "Cancer",
+                                                  "Ciliated",
+                                                  "Fibroblast"))
+
+Idents(final_data) <- "Cell_Cluster_level1"
+
+genes_level1 <- c("CD3D", "TRAC", "TRBC2", "MS4A1", "LY9", "BANK1", "MZB1", "JCHAIN", "IGHG3", "LYZ", "AIF1", "C1QA", "TPSAB1", "CPA3", "GATA2", "VWF", "EPAS1", "CLDN5", "KRT17", "AKR1C1", "KRT6A", "CAPS", "TPPP3", "C20orf85", "COL1A1", "COL1A2", "DCN")
+
+genes_level1[!genes_level1 %in% rownames(final_data)]
+
+VlnPlot(final_data, features = genes_level1, raster = F, combine=T, pt.size=0, stack=T, flip=T, fill.by = "ident") +
+  theme(
+    axis.text.x = element_text(size=6),
+    axis.text.y = element_blank(),
+    strip.text = element_text(size=5)) +
+  NoLegend()
+```
+
+Se pueden observar los marcadores utilizando también la función `FeaturePlot()` o `DoHeatmap()`. (Sacado de la página de Seurat)
+
+```{r}
+# FeaturePlot of some top markers of level1
+FeaturePlot(final_data, reduction="umap.ref", features = c("CD3D", "MS4A1", "MZB1", "LYZ", "TPSAB1", "VWF", "KRT17", "CAPS", "COL1A1"), raster=F)
+
+# Expression heatmap of cells and features
+# Find all markers
+All.markers <- FindAllMarkers(final_data, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.4)
+top5 <- All.markers %>% group_by(cluster) %>% top_n(3, avg_log2FC)
+#DoHeatmap(final_data, features = top5) + NoLegend()
+```
+
+## Proporciones de tipos celulares
+
+Finalmente, se observan las proporciones de las células en los diferentes tipos de muestra.
+
+```{r, include=TRUE, eval=FALSE}
+# Stacked barplot showing cell type proportions
+LUAD <- final_data@meta.data %>%
+  count(Subtype, Cell_Cluster_level1)
+
+ggplot(LUAD, aes(x=Subtype, y=n/sum(n), fill=Cell_Cluster_level1)) + 
+  geom_bar(position="fill", stat="identity")
+```
+
+
+
+
+
