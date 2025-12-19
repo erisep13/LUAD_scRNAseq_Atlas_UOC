@@ -23,11 +23,6 @@ El conjunto de datos final de este Trabajo Final que consiste en un atlas transc
 ```{r}
 # Carga del objeto final
 luad_atlas <- readRDS("final_data_tfm.rds")
-
-# Generación de subconjuntos de datos en base al gen driver
-egfr_atlas <- subset(luad_atlas, subset = driver_gene == "EGFR")
-kras_atlas <- subset(luad_atlas, subset = driver_gene == "KRAS")
-alk_atlas <- subset(luad_atlas, subset = driver_gene == "ALK")
 ```
 
 # QC y corrección del *batch effect* para los datos finales
@@ -37,6 +32,11 @@ Se aplica el control de calidad para todo el conjunto de datos para obtener toda
 ```{r}
 # Aplicación del control de calidad para nFeature_RNA
 luad_atlas <- subset(luad_atlas, subset = nFeature_RNA > 200 & nFeature_RNA < 3000)
+
+# Generación de subconjuntos de datos en base al gen driver
+egfr_atlas <- subset(luad_atlas, subset = driver_gene == "EGFR")
+kras_atlas <- subset(luad_atlas, subset = driver_gene == "KRAS")
+alk_atlas <- subset(luad_atlas, subset = driver_gene == "ALK")
 ```
 
 ```{r}
@@ -89,7 +89,7 @@ ggsave("atlas_confounding.png", plot = get_last_plot(), height=18, width = 16)
 
 ## Proporciones y descripción de los datos
 
-Para el dataset completo, se calculan las frecuencias de cada nivel de las variables de más interés para la descripción de los datos: sexo, estadio tumoral y gen *driver*. En el conjunto de datos prevalecen las células provenientes de hombres en un 55.98% (vs. 42.38% de mujeres), las células de tumoresen estadio I en un 54.79% (vs. 40.8% de estadio III y 4.4% de estadio IV), y las células con mutación *driver* en KRAS en un 62.36% (vs. 34.96% de EGFR y 2.67% de ALK).
+Para el dataset completo, se calculan las frecuencias de cada nivel de las variables de más interés para la descripción de los datos: sexo, estadio tumoral y gen *driver*. En el conjunto de datos prevalecen las células provenientes de hombres en un 56.53% (vs. 41.77% de mujeres), las células de tumores en estadio I en un 56.58% (vs. 41.09% de estadio III y 2.3% de estadio IV), y las células con mutación *driver* en KRAS en un 64.12% (vs. 34.33% de EGFR y 1.55% de ALK).
 
 ```{r}
 # Calculamos las proporciones de las principales variables confusoras
@@ -98,7 +98,7 @@ prop.table(table(luad_atlas$Stage))
 prop.table(table(luad_atlas$driver_gene))
 ```
 
-Dado que el principal objetivo de este Trabajo Finales analizar las células con mutaciones *driver* en EGFR, se han generado subconjuntos de datos para cada mutación identificada, de manera que se pueden describir los datos por separado, utilizando los subconjuntos de KRAS y ALK para las comparativas. Así, para los datos de principal interés para LUAD producido por mutacionesen EGFR se observa lo siguiente: (1) el 81.74% de las células analizadas provienen del estudio GSE131907, (2) el 68.89% de las células pertenecen a pacientes varones (frente a 26.97% de mujeres), (3) el 87.7% provienen de tumores en estadio I (vs. 8.31% de estadio III y 4.13% de estadio IV), y (4) la mutación de EGFR que se ha descrito predominantemente en los datos recogidos ha sido la deleción del exón 19 en un 43.27% (frente a la mutación L858R del exón 21 en un 23.99%, mutaciones del exón 20 en un 17.9%, y mutaciones no identificadas en un 14.84%).
+Dado que el principal objetivo de este Trabajo Finales analizar las células con mutaciones *driver* en EGFR, se han generado subconjuntos de datos para cada mutación identificada, de manera que se pueden describir los datos por separado, utilizando los subconjuntos de KRAS y ALK para las comparativas. Así, para los datos de principal interés para LUAD producido por mutacionesen EGFR se observa lo siguiente: (1) el 86.09% de las células analizadas provienen del estudio GSE131907, (2) el 70.77% de las células pertenecen a pacientes varones (frente a 24.87% de mujeres), (3) el 91.99% provienen de tumores en estadio I (vs. 5.64% de estadio III y 2.37% de estadio IV), y (4) la mutación de EGFR que se ha descrito predominantemente en los datos recogidos ha sido la deleción del exón 19 en un 42.27% (frente a la mutación L858R del exón 21 en un 23.24%, mutaciones del exón 20 en un 18.86%, y mutaciones no identificadas en un 15.63%).
 
 ```{r}
 # Calculamos las proporciones de las variables confusoras solo para EGFR
@@ -108,7 +108,7 @@ prop.table(table(egfr_atlas$Stage))
 prop.table(table(egfr_atlas$EGFR_mutation_type))
 ```
 
-En el caso de las mutaciones KRAS, se observa que se han manifestado en tumores en estadíos I, III y IV; y se distribuyen de forma similar entre losdossexos. Predominan las células provenientes de tumores en estado III en un 60.18% (frente a 38.97% de estadio I y 0.84% de estadio Iv), y apenas hay diferencias de proporción respecto al género (51.16% mujeres vs. 48.83% hombres). Para las células provenientes de pacientes con mutación *driver* en ALK predominan las provenientes de muestras de varones en un 53.6% (frente a 39.01% de mujeres y 7.39% no registradas), y en un 92.61% las células de tumores en estadio IV (frente a 7.39% de estadio III).
+En el caso de las mutaciones KRAS, se observa que se han manifestado en tumores en estadíos I, III y IV; y se distribuyen de forma similar entre los dos sexos. Predominan las células provenientes de tumores en estado III en un 60.54% (frente a 39.2% de estadio I y 0.26% de estadio Iv), y apenas hay diferencias de proporción respecto al género (50.87% mujeres vs. 49.13% hombres). Para las células provenientes de pacientes con mutación *driver* en ALK predominan las provenientes de muestras de varones en un 47% (frente a 39.8% de mujeres y 13.19% no registradas), y en un 86.8% las células de tumores en estadio IV (frente a 13.19% de estadio III).
 
 ```{r}
 # Calculamos las proporciones de las variables confusoras para las muestras de KRAS
@@ -154,11 +154,262 @@ level2.egfr <- DimPlot(egfr_atlas, reduction = 'umap.ref', group.by = 'Cell_Clus
 ggsave("atlas_celdist.png", plot = get_last_plot(), height=15, width = 20)
 ```
 
+Para el conjunto de datos completo, se observa que el tipo celular principal más presente en LUAD son las células T en un 39.52%, seguidas de las células mieloides con un 25.58% y las células B con un 14.9%. El resto de los tipos celulares de nivel 1 se encuentran en una proporción menor al 10%, siendo el de menor representación las células ciliadas presentes en un 0.29%. Por tanto, las principales células presentes en el microambiente tumoral de los pacientes de LUAD son células inmunitarias. Para el nivel 2, las subpoblaciones más representadas en más de un 10% del total son *Naive T* (20.38%), *Mature naive B* (14.35%), Mac asociados a lípidos (10.75%), y *CD8+ Tem* (10.64%).
+
+```{r}
+# Proporciones de tipos celulares en los niveles 1 y 2
+sort(prop.table(table(luad_atlas$Cell_Cluster_level1)), decreasing=T)
+sort(prop.table(table(luad_atlas$Cell_Cluster_level2)), decreasing = T)
+```
+
+## Análisis del subconjunto de datos de mutación EGFR
+
+El objetivo de este Trabajo Final es realizar una caracterización del microambiente tumoral de LUAD con mutaciones EGFR, por lo que se analizará la distribución celular para este subconjunto de muestras en comparación con las otras dos mutaciones driver analizadas, y se compararán las distribuciones celulares según el tipo de mutación de EGFR registrada. Debido al bajo número de células con mutaciones ALK recogidas (menos de 2000 frente a más de 20000 en EGFR y KRAS), las siguientes comparativas se realizarán entre EGFR y KRAS únicamente. Tanto para EGFR como para KRAS, los tres tipos celulares de nivel 1 con más del 10% de representación son las mismas que para la población general, aunque se observan cambios en los porcentajes. Para las mutaciones de EGFR se observa más proporción de células T (42.79% vs. 38.45%), y menos de células mieloides (19.77% vs. 28.03%) y células B (10.92% vs. 17.35%), con respecto a KRAS. Respecto a la clasificación de nivel 2, ambos subconjuntos presentan los cuatro tipos celulares descritos antes por encima del 10%, con la principal diferencia en la cantidad de células *mature naive B* (10.53% para EGFR vs. 16.7% para KRAs). Destaca asimismo la diferencia en la cantidad de neutrófilos identificada entre las dos subpoblaciones (0.9% para EGFR vs. 6.24% para KRAS).
+
+```{r}
+# Proporción celular para EGFR
+sort(prop.table(table(egfr_atlas$Cell_Cluster_level1)), decreasing = T)
+sort(prop.table(table(egfr_atlas$Cell_Cluster_level2)), decreasing = T)
+
+# Proporción celular para KRAS
+sort(prop.table(table(kras_atlas$Cell_Cluster_level1)), decreasing = T)
+sort(prop.table(table(kras_atlas$Cell_Cluster_level2)), decreasing = T)
+```
+
+Dado el interés del trabajo sobre la caracterización del LUAD con mutación *driver* en EGFR se puede determinar si hay diferencias entre las poblaciones según el tipo de mutación de EGFR identificada. En los tres tipos de mutaciones, el principal tipo celular encontrado en las muestras son las células T, aunque con diferencias respecto a su cantidad (34.46% para ex19del, 44.46% para ex20 y 52.9% para ex21L858R). En contraposición, las células mieloides también presentan una cantidad cambiante entre los diferentes subgrupos (25.9% para ex19del, 21.47% para ex20 y 10.35% para ex21L858R). Parece que las muestras de ex19del que muestran menos cantidad de células T respecto a las otras mutaciones, presentan más cantidad de células mieloides; mientras que las muestras con mutaciones ex21L858R muestran más células T y menos mieloides. De la misma manera, la proporción de células B se parece comportar igual que la de las células T, siendo menor su proporción para la subpoblación de ex19del (6.04%), que para la de ex21L858R (17.06%). Finalmente, es también llamativo que la subpoblación ex19del tiene una proporción bastante mayor de células del clúster cáncer que los otros dos subgrupos (15.83% vs. 5.14% de ex20, vs. 2.12% de ex21L858R), e incluso una mayor proporción que el dataset general de LUAD (15.83% vs. 7.4%). 
+
+```{r}
+# Generación de los subconjuntos de datos según el tipo de mutación
+egfr_ex19del <- subset(egfr_atlas, subset = egfr_atlas$EGFR_mutation_type == "ex19del")
+egfr_ex20 <- subset(egfr_atlas, subset = egfr_atlas$EGFR_mutation_type == "ex20")
+egfr_ex21L858R <- subset(egfr_atlas, subset = egfr_atlas$EGFR_mutation_type == "ex21L858R")
+
+# Proporción celular para EGFR con mutación ex19del
+sort(prop.table(table(egfr_ex19del$Cell_Cluster_level1)), decreasing = T)
+
+# Proporción celular para EGFR con mutación ex20
+sort(prop.table(table(egfr_ex20$Cell_Cluster_level1)), decreasing = T)
+
+# Proporción celular para EGFR con mutación ex21L858R
+sort(prop.table(table(egfr_ex21L858R$Cell_Cluster_level1)), decreasing = T)
+```
+
+Al igual que sucede con las proporciones para los grupos celulares identificados en el nivel 1, para el nivel 2 las subpoblaciones de células T y B siguen, por norma general, la misma tónica; es decir, hay una mayor proporción de estas subpoblaciones en los subgrupos ex21L858R y menor en ex19del. Por el contrario, poblaciones como los macrófagos asociados a lípidos y los macrófagos alveolares están en mayor proporción en ex19del (11.95% y 4.41%, respectivamente) que en ex20 (8.11% y 3.02%) y ex21L858R (6.71% y 0.47%). Finalmente, cabe destacar que la subpoblación ex19del parece presentar una gran proporción de la subpoblación alveolar de las células cancerígenas (8.95% frente a 2.63% de ex20 y 0.78% de ex21L858R).
+
+```{r}
+# Distribución celular de nivel 2 para los subgrupos según mutación de EGFR
+sort(prop.table(table(egfr_ex19del$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_ex20$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_ex21L858R$Cell_Cluster_level2)), decreasing = T)
+```
+
+A continuación, se analizaron con más detalle las proporciones de las subpoblaciones celulares más representativas del microambiente tumoral: las células T (`CD4+ Treg`, `CD8+ Tem`, `Naive T`, `NK` y `Proliferating T/NK`), la población de monocitos y macrófagos (`Alveolar Mac`, `Lipid-associated Mac`, `Low quality Mac`, `Monocytes` y `Proliferating Mac`) y la población de células etiquetadas como cancerígenas (`Alveolar`, `CDKN2A Cancer`, `CXCL1 Cancer`, `LAMC2 Cancer`, `Pathological Alveolar`, `Proliferating Cancer` y `SOX2 Cancer`). 
+
+```{r}
+# Generación del subconjunto para poblaciones celulares de interés de EGFR
+egfr_tcells <- subset(egfr_atlas, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
+                                                                   "Proliferating T/NK"))
+egfr_mac <- subset(egfr_atlas, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
+                                                                 "Monocytes", "Proliferating Mac"))
+egfr_cancer <- subset(egfr_atlas, subset = Cell_Cluster_level2 == c("Alveolar", "CDKN2A Cancer", "CXCL1 Cancer", "LAMC2 Cancer",
+                                                                    "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
+
+# Generación del subconjunto para poblaciones celulares de interés de KRAS
+kras_tcells <- subset(kras_atlas, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
+                                                                   "Proliferating T/NK"))
+kras_mac <- subset(kras_atlas, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
+                                                                 "Monocytes", "Proliferating Mac"))
+kras_cancer <- subset(kras_atlas, subset = Cell_Cluster_level2 == c("Alveolar", "CDKN2A Cancer", "CXCL1 Cancer", "LAMC2 Cancer",
+                                                                    "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
 
 
+# generación del subconjunto para poblaciones celulares de interés de EGFR según la mutación
+egfr_ex19del_tcells <- subset(egfr_ex19del, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
+                                                                   "Proliferating T/NK"))
+egfr_ex19del_mac <- subset(egfr_ex19del, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
+                                                                 "Monocytes", "Proliferating Mac"))
+egfr_ex19del_cancer <- subset(egfr_ex19del, subset = Cell_Cluster_level2 == c("Alveolar", "CDKN2A Cancer", "CXCL1 Cancer", "LAMC2 Cancer",
+                                                                    "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
+
+egfr_ex20_tcells <- subset(egfr_ex20, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
+                                                                   "Proliferating T/NK"))
+egfr_ex20_mac <- subset(egfr_ex20, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
+                                                                 "Monocytes", "Proliferating Mac"))
+#egfr_ex20_cancer <- subset(egfr_ex20, subset = Cell_Cluster_level2 == c("Alveolar", "CDKN2A Cancer", "CXCL1 Cancer", "LAMC2 Cancer",
+                                                                    "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
+
+egfr_ex21L858R_tcells <- subset(egfr_ex21L858R, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
+                                                                   "Proliferating T/NK"))
+#egfr_ex21L858R_mac <- subset(egfr_ex21L858R, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
+                                                                 "Monocytes", "Proliferating Mac"))
+#egfr_ex21L858R_cancer <- subset(egfr_ex21L858R, subset = Cell_Cluster_level2 == c("Alveolar", "CDKN2A Cancer", "CXCL1 Cancer", "LAMC2 Cancer",
+                                                                    "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
+```
+
+```{r}
+# Proporciones de las subpoblaciones celulares en EGFR
+sort(prop.table(table(egfr_tcells$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_mac$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_cancer$Cell_Cluster_level2)), decreasing = T)
+
+# Proporciones de las subpoblaciones celulares en KRAS
+sort(prop.table(table(kras_tcells$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(kras_mac$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(kras_cancer$Cell_Cluster_level2)), decreasing = T)
+
+# Proporciones de las subpoblaciones celulares en EGFR según el tipo de mutación
+sort(prop.table(table(egfr_ex19del_tcells$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_ex19del_mac$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_ex19del_cancer$Cell_Cluster_level2)), decreasing = T)
+
+sort(prop.table(table(egfr_ex20_tcells$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_ex20_mac$Cell_Cluster_level2)), decreasing = T)
+
+sort(prop.table(table(egfr_ex21L858R_tcells$Cell_Cluster_level2)), decreasing = T)
+```
+
+Las proporciones de los tipos celulares se pueden representar de forma más visual utilizando diagramas de barras agrupados.
+
+```{r}
+# Diagrama de barras agrupado para las proporciones de células
+
+# Según gen driver
+driver_dist1 <- luad_atlas@meta.data %>%
+  count(driver_gene, Cell_Cluster_level1)
+bar01 <- ggplot(driver_dist1, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level1)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme_bw() + NoLegend()
+
+driver_dist2 <- luad_atlas@meta.data %>%
+  count(driver_gene, Cell_Cluster_level2)
+bar02 <- ggplot(driver_dist2, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level2)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme_bw() + NoLegend()
 
 
+# Según el tipo de mutación de EGFR
+egfr_dist1 <- egfr_atlas@meta.data %>%
+  count(EGFR_mutation_type, Cell_Cluster_level1)
+bar1 <- ggplot(egfr_dist1, aes(x=EGFR_mutation_type, y=n/sum(n), fill=Cell_Cluster_level1)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) + theme_bw()
 
+egfr_dist2 <- egfr_atlas@meta.data %>%
+  count(EGFR_mutation_type, Cell_Cluster_level2)
+bar2 <- ggplot(egfr_dist2, aes(x=EGFR_mutation_type, y=n/sum(n), fill=Cell_Cluster_level2)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) + theme_bw()
 
+# Para las subpoblaciones celulares de interés
+egfr_tcells_dist <- egfr_tcells@meta.data %>%
+  count(driver_gene, Cell_Cluster_level2)
+kras_tcells_dist <- kras_tcells@meta.data %>%
+  count(driver_gene, Cell_Cluster_level2)
+bar3 <- ggplot(egfr_tcells_dist, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level2)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) + theme_bw() + NoLegend() +
+  ggplot(kras_tcells_dist, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level2)) + 
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1))+ theme_bw()
 
+egfr_mac_dist <- egfr_mac@meta.data %>%
+  count(driver_gene, Cell_Cluster_level2)
+kras_mac_dist <- kras_mac@meta.data %>%
+  count(driver_gene, Cell_Cluster_level2)
+bar4 <- ggplot(egfr_mac_dist, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level2)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) + theme_bw() + NoLegend() +
+  ggplot(kras_mac_dist, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level2)) + 
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1))+ theme_bw()
+
+egfr_cancer_dist <- egfr_cancer@meta.data %>%
+  count(driver_gene, Cell_Cluster_level2)
+kras_cancer_dist <- kras_cancer@meta.data %>%
+  count(driver_gene, Cell_Cluster_level2)
+bar5 <- ggplot(egfr_cancer_dist, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level2)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) + theme_bw() + NoLegend() +
+  ggplot(kras_cancer_dist, aes(x=driver_gene, y=n/sum(n), fill=Cell_Cluster_level2)) + 
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1))+ theme_bw()
+
+egfr_tcells_dist_mut <- egfr_tcells@meta.data %>%
+  count(EGFR_mutation_type, Cell_Cluster_level2)
+bar6 <- ggplot(egfr_tcells_dist_mut, aes(x=EGFR_mutation_type, y=n/sum(n), fill=Cell_Cluster_level2)) +
+  geom_bar(position="fill", stat="identity") + theme(axis.text.x=element_text(angle=45, hjust=1)) + theme_bw()
+
+((bar01 + bar1) / (bar02 + bar2) / (bar3 + bar6) / (bar4 + bar5)) + plot_annotation(title="Distribución de los tipos celulares y sus proporciones")
+
+ggsave("atlas_baroplot.png", plot = get_last_plot(), height=14, width = 12)
+```
+
+## Perspectiva de género en la distribución celular del LUAD con mutaciones *driver* en EGFR
+
+Por otra parte, dada la mayor prevalencia de LUAD con mutaciones en EGFR en mujeres en comparación a hombres, se establecerá una comparativa de datos con perspectiva de género. Cabe destacar que sería interesante, e incluso necesario, realizar asimismo una comparativa con perspectiva racial o étnica, dado que se ha descrito que la prevalencia de esta enfermedad se registra mayoritariamente en mujeres de origen asiático. Sin embargo, los datos recogidos en este trabajo no permiten establecer comparativas significativas en este aspecto debido a la ausencia de información demográfica en la mayoría de datos de origen.
+
+```{r}
+# Generación de subgrupos según género
+egfr_female <- subset(egfr_atlas, subset = Gender == "F")
+egfr_male <- subset(egfr_atlas, subset = Gender == "M")
+
+kras_female <- subset(kras_atlas, subset = Gender == "F")
+kras_male <- subset(kras_atlas, subset = Gender == "M")
+
+# Según género y mutación de EGFR
+egfr_ex19del_female <- subset(egfr_female, subset = EGFR_mutation_type == "ex19del")
+egfr_ex19del_male <- subset(egfr_male, subset = EGFR_mutation_type == "ex19del")
+
+egfr_ex20_female <- subset(egfr_female, subset = EGFR_muatation_type == "ex20")
+egfr_ex20_male <- subset(egfr_male, subset = EGFR_mutation_type == "ex20")
+
+egfr_ex21L858R_female <- subset(egfr_female, subset = EGFR_mutation_type == "ex21L8458R")
+egfr_ex21L858R_male <- subset(egfr_male, subset = EGFR_mutation_type == "ex21L858R")
+
+# Por subpoblaciones celulares de interés
+egfr_tcells_female <- subset(egfr_female, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
+                                                                   "Proliferating T/NK"))
+egfr_mac_female <- subset(egfr_female, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
+                                                                 "Monocytes", "Proliferating Mac"))
+egfr_cancer_female <- subset(egfr_female, subset = Cell_Cluster_level2 == c("Alveolar", "CDKN2A Cancer", "CXCL1 Cancer", "LAMC2 Cancer",
+                                                                    "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
+
+egfr_tcells_male <- subset(egfr_male, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
+                                                                   "Proliferating T/NK"))
+egfr_mac_male <- subset(egfr_male, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
+                                                                 "Monocytes", "Proliferating Mac"))
+egfr_cancer_male <- subset(egfr_male, subset = Cell_Cluster_level2 == c("Alveolar", "CDKN2A Cancer", "CXCL1 Cancer", "LAMC2 Cancer",
+                                                                    "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
+```
+
+```{r}
+sort(prop.table(table(egfr_female@meta.data$Stage)))
+sort(prop.table(table(egfr_male@meta.data$Stage)))
+
+sort(prop.table(table(egfr_female@meta.data$driver_gene)))
+sort(prop.table(table(egfr_male@meta.data$driver_gene)))
+
+sort(prop.table(table(egfr_female@meta.data$EGFR_mutation_type)))
+sort(prop.table(table(egfr_male@meta.data$EGFR_mutation_type)))
+
+sort(prop.table(table(egfr_female@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(egfr_male@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(kras_female@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(kras_male@meta.data$Cell_Cluster_level1)))
+
+sort(prop.table(table(egfr_ex19del_female@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(egfr_ex19del_male@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(egfr_ex19del_female@meta.data$Cell_Cluster_level2)))
+sort(prop.table(table(egfr_ex19del_male@meta.data$Cell_Cluster_level2)))
+
+sort(prop.table(table(egfr_ex20_female@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(egfr_ex20_male@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(egfr_ex20_female@meta.data$Cell_Cluster_level2)))
+sort(prop.table(table(egfr_ex20_male@meta.data$Cell_Cluster_level2)))
+
+sort(prop.table(table(egfr_ex21L858R_female@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(egfr_ex21L858R_male@meta.data$Cell_Cluster_level1)))
+sort(prop.table(table(egfr_ex21L858R_female@meta.data$Cell_Cluster_level2)))
+sort(prop.table(table(egfr_ex21L858R_male@meta.data$Cell_Cluster_level2)))
+
+sort(prop.table(table(egfr_tcells_female$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_mac_female$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_cancer_female$Cell_Cluster_level2)), decreasing = T)
+
+sort(prop.table(table(egfr_tcells_male$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_mac_male$Cell_Cluster_level2)), decreasing = T)
+sort(prop.table(table(egfr_cancer_male$Cell_Cluster_level2)), decreasing = T)
+```
 
