@@ -1,2 +1,2 @@
-# Generación de un atlas de scRNA-seq de adenocarcinoma de pulmón con mutaciones driver en EGFR y comparativa con KRAS y ALK
+# Generación de un atlas de scRNA-seq de adenocarcinoma de pulmón con mutaciones driver en EGFR
 
