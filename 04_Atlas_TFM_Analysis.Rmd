@@ -223,7 +223,7 @@ kras_cancer <- subset(kras_atlas, subset = Cell_Cluster_level2 == c("Alveolar", 
                                                                     "Pathological Alveolar", "Proliferating Cancer", "SOX2 Cancer"))
 
 
-# generación del subconjunto para poblaciones celulares de interés de EGFR según la mutación
+# Generación del subconjunto para poblaciones celulares de interés de EGFR según la mutación
 egfr_ex19del_tcells <- subset(egfr_ex19del, subset = Cell_Cluster_level2 == c("CD4+ Treg", "CD8+ Tem", "Naive T", "NK",
                                                                    "Proliferating T/NK"))
 egfr_ex19del_mac <- subset(egfr_ex19del, subset = Cell_Cluster_level2 == c("Alveolar Mac", "Lipid-associated Mac", "Low quality Mac",
@@ -355,7 +355,7 @@ egfr_ex19del_male <- subset(egfr_male, subset = EGFR_mutation_type == "ex19del")
 egfr_ex20_female <- subset(egfr_female, subset = EGFR_muatation_type == "ex20")
 egfr_ex20_male <- subset(egfr_male, subset = EGFR_mutation_type == "ex20")
 
-egfr_ex21L858R_female <- subset(egfr_female, subset = EGFR_mutation_type == "ex21L8458R")
+egfr_ex21L858R_female <- subset(egfr_female, subset = EGFR_mutation_type == "ex21L858R")
 egfr_ex21L858R_male <- subset(egfr_male, subset = EGFR_mutation_type == "ex21L858R")
 
 # Por subpoblaciones celulares de interés
@@ -375,11 +375,48 @@ egfr_cancer_male <- subset(egfr_male, subset = Cell_Cluster_level2 == c("Alveola
 ```
 
 ```{r}
+dp1 <- DimPlot(egfr_female, reduction = 'umap.ref', group.by = 'Stage', shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular según el estadio tumoral para mujeres con LUAD y driver EGFR") +
+  theme_bw()
+dp2 <- DimPlot(egfr_male, reduction = 'umap.ref', group.by = 'Stage', shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular según el estadio tumoral para hombres con LUAD y driver EGFR") +
+  theme_bw()
+
+dp3 <- DimPlot(egfr_female, reduction = 'umap.ref', group.by = 'EGFR_mutation_type', shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular según el tipo de mutación en EGFR para mujeres con LUAD y driver EGFR") +
+  theme_bw()
+dp4 <- DimPlot(egfr_male, reduction = 'umap.ref', group.by = 'EGFR_mutation_type', shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular según el tipo de mutación en EGFR para hombres con LUAD y driver EGFR") +
+  theme_bw()
+
+dp5 <- DimPlot(egfr_female, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', shuffle = TRUE, raster=FALSE, label = T) +
+  labs(title="Distribución celular de nivel 1 para mujeres con LUAD y driver EGFR") +
+  theme_bw() + NoLegend()
+dp6 <- DimPlot(egfr_male, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', shuffle = TRUE, raster=FALSE, label = T) +
+  labs(title="Distribución celular de nivel 1 para hombres con LUAD y driver EGFR") +
+  theme_bw() + NoLegend()
+dp7 <- DimPlot(egfr_female, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', split.by = "Patient", shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular de nivel 1 dividido por pacientes para mujeres con LUAD y mutación en EGFR") +
+  theme_bw()
+dp8 <- DimPlot(egfr_male, reduction = 'umap.ref', group.by = 'Cell_Cluster_level1', split.by = "Patient", shuffle = TRUE, raster=FALSE, label = F) + labs(title="Distribución celular de nivel 1 dividido por pacientes para hombres con LUAD y mutación en EGFR") + theme_bw()
+
+dp9 <- DimPlot(egfr_female, reduction = 'umap.ref', group.by = 'Cell_Cluster_level2', shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular de nivel 2 para mujeres con LUAD y driver EGFR") +
+  theme_bw() + NoLegend()
+dp10 <- DimPlot(egfr_male, reduction = 'umap.ref', group.by = 'Cell_Cluster_level2', shuffle = TRUE, raster=FALSE, label = F) +
+  labs(title="Distribución celular de nivel 2 para hombres con LUAD y driver EGFR") +
+  theme_bw()
+
+((dp1+dp2)/(dp3+dp4)/(dp5+dp6)/dp7/dp8/(dp9+dp10)) + plot_annotation(title="Distribución celular según diferentes variables según el sexo para los pacientes con mutaciones driver en EGFR")
+
+ggsave("atlas_femalemale_dist.png", plot = get_last_plot(), height=20, width = 20)
+```
+
+
+
+```{r}
 sort(prop.table(table(egfr_female@meta.data$Stage)))
 sort(prop.table(table(egfr_male@meta.data$Stage)))
-
-sort(prop.table(table(egfr_female@meta.data$driver_gene)))
-sort(prop.table(table(egfr_male@meta.data$driver_gene)))
 
 sort(prop.table(table(egfr_female@meta.data$EGFR_mutation_type)))
 sort(prop.table(table(egfr_male@meta.data$EGFR_mutation_type)))
