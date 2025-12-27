@@ -1,0 +1,182 @@
+---
+title: "EGFR Atlas Pseudotime Analysis"
+author: "Erise Pérez Pascual"
+date: "2025-12-19"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning = FALSE, message = FALSE}
+# Carga de los paquetes estándar
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+
+# Carga y descarga de ProjecTILs
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+if (!requireNamespace("remotes", quietly = TRUE))
+    install.packages("remotes")
+library(remotes)
+
+BiocManager::install(c("BiocNeighbors", "BiocParallel", "UCell"))
+remotes::install_github("carmonalab/STACAS")
+remotes::install_github("carmonalab/ProjecTILs")
+
+library(ProjecTILs)
+
+# Carga de monocle3
+if (!requireNamespace("devtools", quietly = TRUE))
+    install.packages("devtools")
+
+install.packages("cli", dependencies=T, version="3.6.5")
+
+BiocManager::install(c("batchelor", "DelayedMatrixStats", "HDF5Array", "limma"))
+install.packages("BPCells")
+install.packages("grr")
+devtools::install_github("cole-trapnell-lab/monocle3") # Requiere RTools
+
+library(monocle3)
+```
+
+# Importación de los datos
+
+Se carga el atlas de LUAD con mutación *driver* en EGFR, producto de este Trabajo Final.
+
+```{r}
+# Carga del atlas de EGFR
+egfr_atlas <- readRDS("egfr_atlas.rds")
+```
+
+# Análisis del estado de las células T
+
+Para analizar el estado de las células T que se usarán para hacer el análisis de trayectoria se utiliza el paquete `ProjecTILs`. Primero, se extraen las células T del conjunto de datos total y se carga el mapa de referencia con la función `load.reference.map()`.
+
+```{r}
+# Extracción de células T
+tcells <- subset(egfr_atlas, subset = Cell_Cluster_level1 == "T")
+
+# Carga del mapa de referencia
+options(timeout = 1000)
+ref <- load.reference.map(ref = "https://ndownloader.figshare.com/files/41398167")
+```
+
+
+
+
+
+#Project query cells on the reference map and predict cell states
+querydata <- tcells #your Seurat object
+query.projected <- make.projection(querydata, ref=ref)
+plot.projection(ref, query.projected)+theme_bw()
+query.projected <- cellstate.predict(ref=ref, query=query.projected)
+table(query.projected$functional.cluster)
+plot.statepred.composition(ref, query.projected,metric = "Percent")
+plot.states.radar(ref, query=query.projected)
+
+
+#Subset CD8+ T cells for trajectory analysis
+tcells_projecTil = query.projected[,colnames(query.projected)]
+tcells_projecTil$functional.cluster <- query.projected$functional.cluster
+Idents(tcells_projecTil) <- "functional.cluster"
+tcells_projecTilCD8 <- subset(tcells_projecTil, idents = c("CD8_EarlyActiv", "CD8_EffectorMemory","CD8_NaiveLike", "CD8_Tex", "CD8_Tpex"))
+
+
+#Re-clustering of extracted CD8+ cells
+all.genes <- rownames(tcells_projecTilCD8)
+tcells_projecTilCD8 <- ScaleData(tcells_projecTilCD8, features = all.genes)
+tcells_projecTilCD8 <- RunPCA(tcells_projecTilCD8, features = VariableFeatures(object = tcells_projecTilCD8))
+ElbowPlot(tcells_projecTilCD8)
+tcells_projecTilCD8 <- RunUMAP(tcells_projecTilCD8, reduction = "pca", dims = 1:20)
+tcells_projecTilCD8 <- FindNeighbors(tcells_projecTilCD8, reduction = "pca", dims = 1:20)
+tcells_projecTilCD8 <- FindClusters(tcells_projecTilCD8, resolution = 0.5)
+DimPlot(tcells_projecTilCD8, reduction = "umap", group.by=c("functional.cluster"), label = FALSE) +theme_bw()
+
+########################################
+
+
+##Trajectory analysis of CD8+ T cells
+#Transform Seurat object into cell_data_set object
+T_monocle <- as.cell_data_set(tcells_projecTilCD8, assay = "RNA")
+T_monocle <- estimate_size_factors(T_monocle)
+
+#Get cell metadata
+colData(T_monocle)
+
+#Get gene metadata
+fData(T_monocle)
+rownames(fData(T_monocle))[1:10]
+fData(T_monocle)$gene_short_name <- rownames(fData(T_monocle))
+
+#Get counts
+counts(T_monocle)
+
+#Assign partitions
+recreate.partiion <- c(rep(1,length(T_monocle@colData@rownames)))
+names(recreate.partiion) <- T_monocle@colData@rownames
+recreate.partiion <- as.factor(recreate.partiion)
+T_monocle@clusters$UMAP$partitions <- recreate.partiion
+
+#Assign cluster info
+list_cluster <- tcells_projecTilCD8$functional.cluster
+T_monocle@clusters$UMAP$clusters <- list_cluster
+
+#Save umap structure
+T_monocle@int_colData@listData$reducedDims$UMAP <- tcells_projecTilCD8@reductions$umap@cell.embeddings
+
+
+#Learn trajectory graph
+T_monocle <- learn_graph(T_monocle, use_partition = F)
+plot_cells(T_monocle, color_cells_by = "functional.cluster", label_groups_by_cluster = F, label_branch_points = F,
+           label_roots = F, label_leaves = F, group_label_size = 0) + theme_bw()
+
+
+#Oder cells in pseudotime
+get_earliest_principal_node <- function(T_monocle, time_bin="CD8_NaiveLike"){
+  cell_ids <- which(colData(T_monocle)[, "functional.cluster"] == time_bin)
+  
+  closest_vertex <-
+    T_monocle@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(T_monocle), ])
+  root_pr_nodes <-
+    igraph::V(principal_graph(T_monocle)[["UMAP"]])$name[as.numeric(names
+                                                                     (which.max(table(closest_vertex[cell_ids,]))))]
+  
+  root_pr_nodes
+}
+
+
+#Visualization
+plot_cells(T_monocle, color_cells_by = "pseudotime", label_groups_by_cluster = F, label_branch_points = F,
+           label_roots = F, label_leaves = F, group_label_size = 0) + theme_bw()
+
+pseudotime(T_monocle) # cells ordered by pseudotime
+T_monocle$monocle3_pseudotime <- pseudotime(T_monocle)
+data_pseudo <- as.data.frame(colData(T_monocle))
+ggplot(data_pseudo, aes(monocle3_pseudotime, reorder(functional.cluster, monocle3_pseudotime, median), fill = functional.cluster)) + geom_boxplot()
+
+
+#Find genes with changing expression in pseudotime
+genes_T <- graph_test(T_monocle, neighbor_graph = "principal_graph", cores = 4)
+#top genes
+topgenes <- genes_T %>%
+  arrange(q_value) %>%
+  filter(status == "OK") 
+
+plot_genes_in_pseudotime(T_monocle[rowData(T_monocle)$gene_short_name %in% 
+                       c("Ccr7","Ttc19","Cd69","Klrb1","Id2","Gzma","Gzmb",...),],
+                       color_cells_by="pseudotime",ncol=8, min_expr=0.5, cell_size=1) 
+
+
+#Visualize pseudotime in seurat
+tcells_projecTilCD8$pseudotime <- pseudotime(T_monocle)
+FeaturePlot(tcells_projecTilCD8, features = "pseudotime", label = F) + theme_bw()
+FeaturePlot(tcells_projecTilCD8, features = c("Ccr7","Ttc19","Cd69","Klrb1","Id2","Gzma","Gzmb",...), ncol=4) 
+
+
+########################################
