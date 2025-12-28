@@ -25,20 +25,31 @@ if (!requireNamespace("remotes", quietly = TRUE))
 library(remotes)
 
 BiocManager::install(c("BiocNeighbors", "BiocParallel", "UCell"))
+
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS = "true")
+options(timeout = 3000)
+
+if (!requireNamespace("renv")) install.packages("renv")
+library(renv)
+#renv::restore()
+
 remotes::install_github("carmonalab/STACAS")
 remotes::install_github("carmonalab/ProjecTILs")
 
 library(ProjecTILs)
 
 # Carga de monocle3
-if (!requireNamespace("devtools", quietly = TRUE))
-    install.packages("devtools")
 
 install.packages("cli", dependencies=T, version="3.6.5")
 
-BiocManager::install(c("batchelor", "DelayedMatrixStats", "HDF5Array", "limma"))
-install.packages("BPCells")
-install.packages("grr")
+BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
+                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
+                       'ggrastr'))
+
+install.packages("devtools")
+remotes::install_github("bnprks/BPCells/r")
+
 devtools::install_github("cole-trapnell-lab/monocle3") # Requiere RTools
 
 library(monocle3)
@@ -46,7 +57,7 @@ library(monocle3)
 
 # Importación de los datos
 
-Se carga el atlas de LUAD con mutación *driver* en EGFR, producto de este Trabajo Final.
+Se carga el atlas de LUAD con mutación *driver* en EGFR, producto de este Trabajo Final. Se trata de un objeto Seurat con información de 75513 genes para 20326 células.
 
 ```{r}
 # Carga del atlas de EGFR
@@ -55,49 +66,83 @@ egfr_atlas <- readRDS("egfr_atlas.rds")
 
 # Análisis del estado de las células T
 
-Para analizar el estado de las células T que se usarán para hacer el análisis de trayectoria se utiliza el paquete `ProjecTILs`. Primero, se extraen las células T del conjunto de datos total y se carga el mapa de referencia con la función `load.reference.map()`.
+Para analizar el estado de las células T que se usarán para hacer el análisis de trayectoria se utiliza el paquete `ProjecTILs`. Primero, se extraen las células T del conjunto de datos total. El mapa de referencia se descargará desde figshare (https://doi.org/10.6084/m9.figshare.23608308) como un archivo rds. Se trata de un atlas de referencia de células T de tumoresinfiltrados con CD8+ de humanos.
 
 ```{r}
 # Extracción de células T
 tcells <- subset(egfr_atlas, subset = Cell_Cluster_level1 == "T")
 
 # Carga del mapa de referencia
-options(timeout = 1000)
-ref <- load.reference.map(ref = "https://ndownloader.figshare.com/files/41398167")
+ref <- readRDS("CD8T_human_ref_v1.rds")
+```
+
+## Proyección de las células query en el mapa de referencia
+
+Las células *query* son las células T extraídas del atlas de LUAD con mutaciones *driver* en EGFR de este Trabajo Final. Estas se proyectan sobre el mapa de referencia utilizando la función `make.projection()` para luego predecir los estados de las células. Esta función hace un prefiltro de las células T utilizando el paquete `scGate` para purificar una población celular de interés (en este caso las células T). Finalmente, los datos de *query* se cometen a corrección del efecto lote y se proyectan a los espacios de PCA y UMAP de referencia. Este proceso ha identificado 1594 células diana puras (un 18.33% del total), por lo que ha eliminado 7103 células de 8697. Este prefiltraje se puede evitar mediante el argumento `filter.cells=FALSE`. La proyección se puede observar mediante la función `plot.projection()`. A continuación, se predicen los estados celulares y se representa gráficamente la composición con la función `plot.statepred.composition()`. El estado celular más abundante en los datos del atlas son las `CD8.CM` (43.91%) seguidas de las CD8.EM (24.65%), y las menos abundantes son las `CD8.TPEX` (0.38%). El resto de tipos se encuentran entre 6-9.5%. Además, se puede establecer un gráfico tipo radar con la función `plot.states.radar()` que permite comparar los niveles de expresión génica entre los diferentes estados celulares. Las firmas de expresión génica vienen determinadas por el propio paquete de `ProjecTILs` y permiten predecir el estado celular de las células T CD8+ en estudio.
+
+```{r}
+# Se hace la proyección
+query.projected <- make.projection(tcells, ref=ref)
+
+# Visualización de la proyección
+proj1 <- plot.projection(ref, query.projected) + labs(title="Proyección de los datos de entrada en el mapa de referencia de ProjecTILs") + theme_bw()
+
+# Composición predicha
+query.projected <- cellstate.predict(ref=ref, query = query.projected)
+sort(prop.table(table(query.projected$functional.cluster)), decreasing = T)
+proj2 <- plot.statepred.composition(ref, query.projected,metric = "Percent") + labs(title="Porcentajes de la composición de células T predichas para los datos de entrada") + theme_bw()
+
+# Representación de radar
+radar <- plot.states.radar(ref, query=query.projected) + theme_bw()
+
+((proj1 + proj2)/radar) + plot_annotation(title="Proyección de las células del atlas en el mapa de referencia y análisis de estado celular")
+
+ggsave("projTILs.png", get_last_plot(), height=15, width=15)
+```
+
+```{r}
+saveRDS(query.projected, "query_projected.rds")
 ```
 
 
+## Selección de las células T CD8+ para el análisis de trayectoria
 
+Las células predichas previamente como células T CD8+ se seleccionan y se filtran del atlas completo de datos.
 
+```{r}
+# Selección de células T CD8+ de la predicción
+tcells_projecTIL <- query.projected[, colnames(query.projected)]
+tcells_projecTIL$functional.cluster <- query.projected$functional.cluster
 
-#Project query cells on the reference map and predict cell states
-querydata <- tcells #your Seurat object
-query.projected <- make.projection(querydata, ref=ref)
-plot.projection(ref, query.projected)+theme_bw()
-query.projected <- cellstate.predict(ref=ref, query=query.projected)
-table(query.projected$functional.cluster)
-plot.statepred.composition(ref, query.projected,metric = "Percent")
-plot.states.radar(ref, query=query.projected)
+# Clúster funcional como identidad
+Idents(tcells_projecTIL) <- "functional.cluster"
 
+# Selección de las identidades
+tcells_cd8 <- subset(tcells_projecTIL, idents = c("CD8.CM", "CD8.EM", "CD8.MAIT", "CD8.NaiveLike", "CD8.TEMRA", "CD8.TEX", "CD8.TPEX"))
+```
 
-#Subset CD8+ T cells for trajectory analysis
-tcells_projecTil = query.projected[,colnames(query.projected)]
-tcells_projecTil$functional.cluster <- query.projected$functional.cluster
-Idents(tcells_projecTil) <- "functional.cluster"
-tcells_projecTilCD8 <- subset(tcells_projecTil, idents = c("CD8_EarlyActiv", "CD8_EffectorMemory","CD8_NaiveLike", "CD8_Tex", "CD8_Tpex"))
+## Preprocesado del nuevo subconjunto de datos CD8
 
+El nuevo subconjunto de datos se preproceso siguiendo la metodología estándar: escalado de datos, PCA, UMAP, y agrupamiento por clústeres con una resolución del 0.5.
 
-#Re-clustering of extracted CD8+ cells
-all.genes <- rownames(tcells_projecTilCD8)
-tcells_projecTilCD8 <- ScaleData(tcells_projecTilCD8, features = all.genes)
-tcells_projecTilCD8 <- RunPCA(tcells_projecTilCD8, features = VariableFeatures(object = tcells_projecTilCD8))
-ElbowPlot(tcells_projecTilCD8)
-tcells_projecTilCD8 <- RunUMAP(tcells_projecTilCD8, reduction = "pca", dims = 1:20)
-tcells_projecTilCD8 <- FindNeighbors(tcells_projecTilCD8, reduction = "pca", dims = 1:20)
-tcells_projecTilCD8 <- FindClusters(tcells_projecTilCD8, resolution = 0.5)
-DimPlot(tcells_projecTilCD8, reduction = "umap", group.by=c("functional.cluster"), label = FALSE) +theme_bw()
+```{r}
+all.genes <- rownames(tcells_cd8)
+tcells_cd8 <- ScaleData(tcells_cd8, features = all.genes)
+tcells_cd8 <- RunPCA(tcells_cd8, features = VariableFeatures(object = tcells_cd8))
+tcells_cd8 <- RunUMAP(tcells_cd8, reduction = "pca", dims=1:20)
+tcells_cd8 <- FindNeighbors(tcells_cd8, reduction = "pca", dims=1:20)
+tcells_cd8 <- FindClusters(tcells_cd8, resolution = 0.5)
 
-########################################
+DimPlot(tcells_cd8, reduction = "umap", group.by=c("functional.cluster"), label = T, label.size = 3) + labs(title="Distribución celular según el estado celular para las células T CD8") + theme_bw()
+
+ggsave("dimplot_t_cd8.png", get_last_plot(), height=5, width=8)
+```
+
+```{r}
+#saveRDS(tcells_cd8, "tcells_cd8.rds")
+readRDS("tcells_cd8.rds")
+```
+
 
 
 ##Trajectory analysis of CD8+ T cells
