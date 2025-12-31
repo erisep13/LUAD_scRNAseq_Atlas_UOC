@@ -9,7 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r, warning = FALSE, message = FALSE}
+```{r, warning = FALSE, message = FALSE, cache=TRUE}
 # Carga de los paquetes estándar
 library(dplyr)
 library(Seurat)
@@ -49,10 +49,14 @@ BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
 
 install.packages("devtools")
 remotes::install_github("bnprks/BPCells/r")
+install.packages("BPCells")
+install.packages("grr_0.9.1.tar.gz")
+library(grr)
 
 devtools::install_github("cole-trapnell-lab/monocle3") # Requiere RTools
-
+BiocManager::install("monocle")
 library(monocle3)
+library(monocle)
 ```
 
 # Importación de los datos
@@ -129,7 +133,7 @@ El nuevo subconjunto de datos se preproceso siguiendo la metodología estándar:
 all.genes <- rownames(tcells_cd8)
 tcells_cd8 <- ScaleData(tcells_cd8, features = all.genes)
 tcells_cd8 <- RunPCA(tcells_cd8, features = VariableFeatures(object = tcells_cd8))
-tcells_cd8 <- RunUMAP(tcells_cd8, reduction = "pca", dims=1:20)
+tcells_cd8 <- RunUMAP(tcells_cd8, reduction = "pca", dims=1:20, return.model=TRUE)
 tcells_cd8 <- FindNeighbors(tcells_cd8, reduction = "pca", dims=1:20)
 tcells_cd8 <- FindClusters(tcells_cd8, resolution = 0.5)
 
@@ -140,39 +144,59 @@ ggsave("dimplot_t_cd8.png", get_last_plot(), height=5, width=8)
 
 ```{r}
 #saveRDS(tcells_cd8, "tcells_cd8.rds")
-readRDS("tcells_cd8.rds")
+tcells_cd8 <- readRDS("tcells_cd8.rds")
 ```
 
+# Análisis de trayectoria de las células T CD8+
 
+Primero, se convierte el objeto Seurat en un objeto utilizable por `monocle` con la función `as.CellDataSet()`, y se calcula el tamaño de los factores con la función `estimateSizeFactors()`.
 
-##Trajectory analysis of CD8+ T cells
-#Transform Seurat object into cell_data_set object
-T_monocle <- as.cell_data_set(tcells_projecTilCD8, assay = "RNA")
-T_monocle <- estimate_size_factors(T_monocle)
+```{r}
+# Transformación del objeto Seurat a un objeto cell_data_set
+T_monocle <- as.CellDataSet(tcells_cd8, assay="RNA")
 
-#Get cell metadata
-colData(T_monocle)
+# Estimación del tamaño de los factores
+T_monocle <- estimateSizeFactors(T_monocle)
+```
 
-#Get gene metadata
+Se puede observar que el metadata de las células y genes, y la matriz de contajes del objeto Seurat se han conservado en este nuevo objeto, así como la información de los clústeres y las reducciones dimensionales
+
+```{r}
+# Metadata de las células
+pData(T_monocle)
+
+# Metadata de genes
 fData(T_monocle)
 rownames(fData(T_monocle))[1:10]
 fData(T_monocle)$gene_short_name <- rownames(fData(T_monocle))
 
-#Get counts
-counts(T_monocle)
+# Contajes
+exprs(T_monocle)
+```
 
-#Assign partitions
-recreate.partiion <- c(rep(1,length(T_monocle@colData@rownames)))
-names(recreate.partiion) <- T_monocle@colData@rownames
-recreate.partiion <- as.factor(recreate.partiion)
-T_monocle@clusters$UMAP$partitions <- recreate.partiion
+A continuación, se asignó una única partición para todas las células, se asignó la información de los clústeres y se guardó la estructura UMAP. Con esto, se puede añadir la información de los clústeres. Finalmente, se guarda la estructura de UMAP.
 
-#Assign cluster info
-list_cluster <- tcells_projecTilCD8$functional.cluster
-T_monocle@clusters$UMAP$clusters <- list_cluster
+```{r}
+# Asignación de particiones
+recreate.partition <- c(rep(1, length(rownames(T_monocle@phenoData))))
+names(recreate.partition) <- rownames(T_monocle@phenoData)
+recreate.partition <- as.factor(recreate.partition)
+T_monocle@phenoData$UMAP_partitions <- recreate.partition
 
-#Save umap structure
-T_monocle@int_colData@listData$reducedDims$UMAP <- tcells_projecTilCD8@reductions$umap@cell.embeddings
+# Adición de la información de los clústeres
+T_monocle@phenoData$UMAP_partitions <- tcells_cd8$functional.cluster
+
+# Estructura UMAP
+T_monocle@reducedDimS <- tcells_cd8[["umap"]]@cell.embeddings
+```
+
+A continuación, se estudia la trayectoria de las células. Para eso, se reducen las dimensiones a dos con la función `reduceDimension()` y el argumento `max_components = 2`, para poder ordenar las células con la función `orderCells()`.
+
+```{r}
+T_monocle <- differentialGeneTest(T_monocle)
+T_monocle <- reduceDimension(T_monocle, max_components=2)
+T_monocle <- orderCells(T_monocle)
+```
 
 
 #Learn trajectory graph
