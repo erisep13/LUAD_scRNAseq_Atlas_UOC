@@ -17,8 +17,7 @@ library(patchwork)
 library(ggplot2)
 
 # Carga y descarga de ProjecTILs
-if (!requireNamespace("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
+install.packages("BiocManager")
 
 if (!requireNamespace("remotes", quietly = TRUE))
     install.packages("remotes")
@@ -190,44 +189,51 @@ T_monocle@phenoData$UMAP_partitions <- tcells_cd8$functional.cluster
 T_monocle@reducedDimS <- tcells_cd8[["umap"]]@cell.embeddings
 ```
 
-A continuación, se estudia la trayectoria de las células. Para eso, se reducen las dimensiones a dos con la función `reduceDimension()` y el argumento `max_components = 2`, para poder ordenar las células con la función `orderCells()`.
+A continuación, se estudia la trayectoria de las células. Para eso, se reducen las dimensiones a dos con la función `reduceDimension()`, el argumento `max_components = 2`, y utilizando el método de reducción UMAP; para poder ordenar las células con la función `orderCells()`. En la ordenación de las células se determina como estado inicial las células `CD8.NaiveLike` con el argumento `root_state = "CD8.NaiveLike"`. Estas dos funciones permiten el aprendizaje del modelo de trayectoria de las células en los datos de células T CD8.
 
 ```{r}
-T_monocle <- differentialGeneTest(T_monocle)
-T_monocle <- reduceDimension(T_monocle, max_components=2)
+# Elección de genes diferenciales, según las particiones de UMAP según el cluster funcional
+T_monocle <- detectGenes(T_monocle, min_expr = 0.1)
+variable_genes <- apply(exprs(T_monocle), 1, var)
+top_variable_genes <- order(variable_genes, decreasing = T)[1:10000]
+diff_genes <- differentialGeneTest(T_monocle[top_variable_genes,], fullModelFormulaStr = "~UMAP_partitions")
+ordering_genes <- row.names(subset(diff_genes, qval < 0.01))
+T_monocle <- setOrderingFilter(T_monocle, ordering_genes)
+T_monocle <- estimateDispersions(T_monocle)
+plot_ordering_genes(T_monocle)
+
+# Reducción de la dimensionalidad de los datos
+T_monocle <- reduceDimension(T_monocle, max_components=2, method = "UMAP")
+
+# Ordenación de las células en la trayectoria
 T_monocle <- orderCells(T_monocle)
 ```
 
-
-#Learn trajectory graph
-T_monocle <- learn_graph(T_monocle, use_partition = F)
-plot_cells(T_monocle, color_cells_by = "functional.cluster", label_groups_by_cluster = F, label_branch_points = F,
-           label_roots = F, label_leaves = F, group_label_size = 0) + theme_bw()
-
-
-#Oder cells in pseudotime
-get_earliest_principal_node <- function(T_monocle, time_bin="CD8_NaiveLike"){
-  cell_ids <- which(colData(T_monocle)[, "functional.cluster"] == time_bin)
-  
-  closest_vertex <-
-    T_monocle@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
-  closest_vertex <- as.matrix(closest_vertex[colnames(T_monocle), ])
-  root_pr_nodes <-
-    igraph::V(principal_graph(T_monocle)[["UMAP"]])$name[as.numeric(names
-                                                                     (which.max(table(closest_vertex[cell_ids,]))))]
-  
-  root_pr_nodes
-}
+```{r}
+#saveRDS(T_monocle, "T_monocle.rds")
+T_monocle <- readRDS("T_monocle.rds")
+```
 
 
+```{r}
+colnames(pData(T_monocle))[colnames(pData(T_monocle)) == "sample_name"] <- "original_sample_name"
+plot_cell_trajectory(T_monocle, color_by="State") + theme_bw()
+plot_cell_trajectory(T_monocle, color_by="Pseudotime") + theme_bw()
+plot_cell_trajectory(T_monocle, color_by="UMAP_partitions") + theme_bw()
+plot_cell_clusters(T_monocle, color_by="Pseudotime")
+```
+
+```{r}
 #Visualization
-plot_cells(T_monocle, color_cells_by = "pseudotime", label_groups_by_cluster = F, label_branch_points = F,
-           label_roots = F, label_leaves = F, group_label_size = 0) + theme_bw()
+plot_cell_trajectory(T_monocle, color_cells_by = "pseudotime", label_groups_by_cluster = T, label_branch_points = F,
+           label_roots = F, label_leaves = F, group_label_size = 3) + theme_bw()
 
 pseudotime(T_monocle) # cells ordered by pseudotime
 T_monocle$monocle3_pseudotime <- pseudotime(T_monocle)
 data_pseudo <- as.data.frame(colData(T_monocle))
 ggplot(data_pseudo, aes(monocle3_pseudotime, reorder(functional.cluster, monocle3_pseudotime, median), fill = functional.cluster)) + geom_boxplot()
+```
+
 
 
 #Find genes with changing expression in pseudotime
