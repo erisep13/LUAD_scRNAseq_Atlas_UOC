@@ -37,24 +37,8 @@ remotes::install_github("carmonalab/ProjecTILs")
 
 library(ProjecTILs)
 
-# Carga de monocle3
-
-install.packages("cli", dependencies=T, version="3.6.5")
-
-BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
-                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
-                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
-                       'ggrastr'))
-
-install.packages("devtools")
-remotes::install_github("bnprks/BPCells/r")
-install.packages("BPCells")
-install.packages("grr_0.9.1.tar.gz")
-library(grr)
-
-devtools::install_github("cole-trapnell-lab/monocle3") # Requiere RTools
+# Carga de monocle
 BiocManager::install("monocle")
-library(monocle3)
 library(monocle)
 ```
 
@@ -151,7 +135,7 @@ tcells_cd8 <- readRDS("tcells_cd8.rds")
 Primero, se convierte el objeto Seurat en un objeto utilizable por `monocle` con la función `as.CellDataSet()`, y se calcula el tamaño de los factores con la función `estimateSizeFactors()`.
 
 ```{r}
-# Transformación del objeto Seurat a un objeto cell_data_set
+# Transformación del objeto Seurat a un objetoCellDataSet
 T_monocle <- as.CellDataSet(tcells_cd8, assay="RNA")
 
 # Estimación del tamaño de los factores
@@ -173,7 +157,7 @@ fData(T_monocle)$gene_short_name <- rownames(fData(T_monocle))
 exprs(T_monocle)
 ```
 
-A continuación, se asignó una única partición para todas las células, se asignó la información de los clústeres y se guardó la estructura UMAP. Con esto, se puede añadir la información de los clústeres. Finalmente, se guarda la estructura de UMAP.
+A continuación, se asigna una única partición para todas las células, se asignó la información de los clústeres y se guardó la estructura UMAP. Con esto, se puede añadir la información de los clústeres. Finalmente, se guarda la estructura de UMAP.
 
 ```{r}
 # Asignación de particiones
@@ -189,16 +173,22 @@ T_monocle@phenoData$UMAP_partitions <- tcells_cd8$functional.cluster
 T_monocle@reducedDimS <- tcells_cd8[["umap"]]@cell.embeddings
 ```
 
-A continuación, se estudia la trayectoria de las células. Para eso, se reducen las dimensiones a dos con la función `reduceDimension()`, el argumento `max_components = 2`, y utilizando el método de reducción UMAP; para poder ordenar las células con la función `orderCells()`. En la ordenación de las células se determina como estado inicial las células `CD8.NaiveLike` con el argumento `root_state = "CD8.NaiveLike"`. Estas dos funciones permiten el aprendizaje del modelo de trayectoria de las células en los datos de células T CD8.
+A continuación, se estudia la trayectoria de las células. Para eso, se reducen las dimensiones a dos con la función `reduceDimension()`, el argumento `max_components = 2`, y utilizando el método de reducción UMAP; para poder ordenar las células con la función `orderCells()`. Estas dos funciones permiten el aprendizaje del modelo de trayectoria de las células en los datos de células T CD8. Previo a estos pasos de aprendizaje del modelo de trayectoria se detectan los genes diferenciales del objeto con el que se está trabajando, utilizando para ello el cálculo de la varianza y la función `detectGenes()`. A continuación, se realiza un análisis diferencial de la expresión de los genes más variables en función de la variable que contiene la información sobre los grupos que se quieren clasificar en el pseudotiempo. Este análisis diferencial se realiza con la función `differentialGeneTest()`, seleccionando los genes más variables y el argumento con la variable con los grupos `fullModelFormulaStr = "~UMAP_partitions"`. De esta manera, se encuentran los genes que están diferencialmente expresados en función del estado celular de las células T CD8+. Estos genes se ordenan y se asignan al objeto para trabajar con ellos el resto del análisis con la funci´pn `setOrderingFilter()`. Para representar los genes de ordenación con `plot_ordering_genes()` se deben estimar primero las dispersiones con la función `estimateDispersions()`.
 
 ```{r}
-# Elección de genes diferenciales, según las particiones de UMAP según el cluster funcional
+# Filtraje de genes altamente variables según su varianza
 T_monocle <- detectGenes(T_monocle, min_expr = 0.1)
 variable_genes <- apply(exprs(T_monocle), 1, var)
 top_variable_genes <- order(variable_genes, decreasing = T)[1:10000]
+
+# Cálculo de los genes diferencialmente expresados según las particiones UMAP o el estado funcional de las células T CD8+
 diff_genes <- differentialGeneTest(T_monocle[top_variable_genes,], fullModelFormulaStr = "~UMAP_partitions")
+
+# Ordención y asignación de los genes diferenciales al objeto de trabajo
 ordering_genes <- row.names(subset(diff_genes, qval < 0.01))
 T_monocle <- setOrderingFilter(T_monocle, ordering_genes)
+
+# Cálculo de estimación de dispersiones y representación de los genes diferenciales
 T_monocle <- estimateDispersions(T_monocle)
 plot_ordering_genes(T_monocle)
 
@@ -214,44 +204,138 @@ T_monocle <- orderCells(T_monocle)
 T_monocle <- readRDS("T_monocle.rds")
 ```
 
+## Visualización del análisis de trayectorias
+
+La función propia del paquete `monocle` para la visualización de las trayectorias celulares es `plot_cell_trajectory()`. El gráfico toma una estructura ramificada que indica el momento en el que se genera una ramificación que conlleva a la generación de diferentes tipos celulares o, en este caso, la diferenciación de los estados de las células T CD8+. Estas representaciones se pueden colorear según el estado identificado en el proceso del análisis de trayectoria (los cuales se clasifican según el pseudotiempo), el pseudotiempo o las particiones de UMAP que indican el clúster funcional. En este caso, el mapa muestras dos puntos de ramificación que dan lugar a los cambios de estado celular, según el pseudotiempo.
 
 ```{r}
 colnames(pData(T_monocle))[colnames(pData(T_monocle)) == "sample_name"] <- "original_sample_name"
-plot_cell_trajectory(T_monocle, color_by="State") + theme_bw()
-plot_cell_trajectory(T_monocle, color_by="Pseudotime") + theme_bw()
-plot_cell_trajectory(T_monocle, color_by="UMAP_partitions") + theme_bw()
-plot_cell_clusters(T_monocle, color_by="Pseudotime")
+# Mapa de trayectorias
+traj1 <- plot_cell_trajectory(T_monocle, color_by="State") + theme_bw() + labs(title="Mapa de trayectorias celulares según el estado de la trayectoria, el pseudotiempo o el estado celular")
+traj2 <- plot_cell_trajectory(T_monocle, color_by="Pseudotime") + theme_bw()
+traj3 <- plot_cell_trajectory(T_monocle, color_by="functional.cluster") + theme_bw()
+```
+
+Si bien, el mapa de trayectorias celulares no parece mostrar un cambio de estados claro entre los estados celulares de las células T CD8+, es posible sacar unas conclusiones mediante la observación de los mapas de trayectoria y los datos de proporciones según el estado y el estado celular. Las células en estado `Cd8.NaiveLike` se sitúan con más frecuencia en estados tempranos. Los estados `CD8.TEX` y `CD8.TPEX` son exclusivamente estados celulares tardíos que aparecen únicamente en los estados 3 y 4 correspondientes a los mayores pseudotiempos.
+
+```{r}
+prop.table(table(pData(T_monocle)$State, pData(T_monocle)$functional.cluster))
+```
+
+Las observaciones anteriores se pueden complementar con representaciones del paquete `Seurat` donde se pueden comparar en el espacio de reducción UMAP los espacios que toman los clúseres celulares y los pseudotiempos. Asimismo, se pueden calcular unos diagramas de cajas según los estadísticos descriptivos necesarios para la descripción de los datos según su distribución en el pseudotiempo.
+
+```{r}
+# Visualización
+dp <- DimPlot(tcells_cd8, group.by="functional.cluster") + theme_bw() + labs(title="Distribución celular según el estado de las células T CD8+")
+fp <- FeaturePlot(tcells_cd8, features="pseudotime") + theme_bw() + labs(title="Distribución celular según el pseudotiempo")
+
+bp <- ggplot(as.data.frame(pData(T_monocle)), aes(Pseudotime, reorder(functional.cluster, Pseudotime, median), fill=functional.cluster)) + geom_boxplot() + theme_bw() + labs(title="Diagrama de cajas según la distribución de cada estado celular")
+
+((traj1+traj2+traj3)/(dp+fp)/bp) + plot_annotation(title="Análisis de la tryectoria en el pseudotiempo")
+
+ggsave("pseudotime_trajectory.png", get_last_plot(), height=14, width=15)
+```
+
+# Análisis de trayectoria de células cáncer
+
+Primero, se seleccionan las células del clúster `Cancer` del atlas de LUAD con mutación driver en EGFR. Se obtiene así un conjunto de 1754 células de la población cáncer.
+
+```{r}
+egfr_atlas <- readRDS("egfr_atlas.rds")
+
+# Filtraje del atlas en células cáncer
+cancer_cells <- subset(egfr_atlas, subset = Cell_Cluster_level1 == "Cancer")
+```
+
+A continuación, el objeto Seurat se convierte en un objeto CellDataSet y se procesa igual que antes.
+
+```{r}
+# Transformación del objeto Seurat a un objetoCellDataSet
+cancer_monocle <- as.CellDataSet(cancer_cells, assay="RNA")
+
+# Estimación del tamaño de los factores
+cancer_monocle <- estimateSizeFactors(cancer_monocle)
+
+# Metadata de las células
+pData(cancer_monocle)
+
+# Metadata de genes
+fData(cancer_monocle)
+rownames(fData(cancer_monocle))[1:10]
+fData(cancer_monocle)$gene_short_name <- rownames(fData(cancer_monocle))
+
+# Contajes
+exprs(cancer_monocle)
+
+# Asignación de particiones
+recreate.partition <- c(rep(1, length(rownames(cancer_monocle@phenoData))))
+names(recreate.partition) <- rownames(cancer_monocle@phenoData)
+recreate.partition <- as.factor(recreate.partition)
+cancer_monocle@phenoData$UMAP_partitions <- recreate.partition
+
+# Adición de la información de los clústeres
+cancer_monocle@phenoData$UMAP_partitions <- cancer_cells$Cell_Cluster_level2
+
+# Estructura UMAP
+cancer_monocle@reducedDimS <- cancer_cells[["umap.ref"]]@cell.embeddings
+
+# Filtraje de genes altamente variables según su varianza
+cancer_monocle <- detectGenes(cancer_monocle, min_expr = 0.1)
+variable_genes <- apply(exprs(cancer_monocle), 1, var)
+top_variable_genes <- order(variable_genes, decreasing = T)[1:10000]
+
+# Cálculo de los genes diferencialmente expresados según las particiones UMAP o el estado funcional de las células T CD8+
+diff_genes <- differentialGeneTest(cancer_monocle[top_variable_genes,], fullModelFormulaStr = "~UMAP_partitions")
+
+# Ordención y asignación de los genes diferenciales al objeto de trabajo
+ordering_genes <- row.names(subset(diff_genes, qval < 0.01))
+cancer_monocle <- setOrderingFilter(cancer_monocle, ordering_genes)
+
+# Cálculo de estimación de dispersiones y representación de los genes diferenciales
+cancer_monocle <- estimateDispersions(cancer_monocle)
+plot_ordering_genes(cancer_monocle)
+
+# Reducción de la dimensionalidad de los datos
+cancer_monocle <- reduceDimension(cancer_monocle, max_components=2, method = "UMAP")
+
+# Ordenación de las células en la trayectoria
+cancer_monocle <- orderCells(cancer_monocle)
 ```
 
 ```{r}
-#Visualization
-plot_cell_trajectory(T_monocle, color_cells_by = "pseudotime", label_groups_by_cluster = T, label_branch_points = F,
-           label_roots = F, label_leaves = F, group_label_size = 3) + theme_bw()
-
-pseudotime(T_monocle) # cells ordered by pseudotime
-T_monocle$monocle3_pseudotime <- pseudotime(T_monocle)
-data_pseudo <- as.data.frame(colData(T_monocle))
-ggplot(data_pseudo, aes(monocle3_pseudotime, reorder(functional.cluster, monocle3_pseudotime, median), fill = functional.cluster)) + geom_boxplot()
+#saveRDS(cancer_monocle, "cancer_monocle.rds")
+cancer_monocle <- readRDS("cancer_monocle.rds")
 ```
 
+## Visualización
 
+En este caso, el mapa de trayectoria muestra un único punto de ramificación.
 
-#Find genes with changing expression in pseudotime
-genes_T <- graph_test(T_monocle, neighbor_graph = "principal_graph", cores = 4)
-#top genes
-topgenes <- genes_T %>%
-  arrange(q_value) %>%
-  filter(status == "OK") 
+```{r}
+colnames(pData(cancer_monocle))[colnames(pData(cancer_monocle)) == "sample_name"] <- "original_sample_name"
+# Mapa de trayectorias
+traj1 <- plot_cell_trajectory(cancer_monocle, color_by="State") + theme_bw() + labs(title="Mapa de trayectorias celulares según el estado de la trayectoria, el pseudotiempo o el estado celular")
+traj2 <- plot_cell_trajectory(cancer_monocle, color_by="Pseudotime") + theme_bw()
+traj3 <- plot_cell_trajectory(cancer_monocle, color_by="Cell_Cluster_level2") + theme_bw()
 
-plot_genes_in_pseudotime(T_monocle[rowData(T_monocle)$gene_short_name %in% 
-                       c("Ccr7","Ttc19","Cd69","Klrb1","Id2","Gzma","Gzmb",...),],
-                       color_cells_by="pseudotime",ncol=8, min_expr=0.5, cell_size=1) 
+# Visualización
+dp <- DimPlot(cancer_cells, group.by="Cell_Cluster_level2") + theme_bw() + labs(title="Distribución celular según el estado de las células cáncer")
 
+cancer_cells@meta.data$pseudotime <- pData(cancer_monocle)$Pseudotime
+fp <- FeaturePlot(cancer_cells, features="pseudotime") + theme_bw() + labs(title="Distribución celular según el pseudotiempo")
 
-#Visualize pseudotime in seurat
-tcells_projecTilCD8$pseudotime <- pseudotime(T_monocle)
-FeaturePlot(tcells_projecTilCD8, features = "pseudotime", label = F) + theme_bw()
-FeaturePlot(tcells_projecTilCD8, features = c("Ccr7","Ttc19","Cd69","Klrb1","Id2","Gzma","Gzmb",...), ncol=4) 
+bp <- ggplot(as.data.frame(pData(cancer_monocle)), aes(Pseudotime, reorder(Cell_Cluster_level2, Pseudotime, median), fill=Cell_Cluster_level2)) + geom_boxplot() + theme_bw() + labs(title="Diagrama de cajas según la distribución de cada estado celular")
 
+((traj1+traj2+traj3)/(dp+fp)/bp) + plot_annotation(title="Análisis de la tryectoria en el pseudotiempo para células cancerígenas")
 
-########################################
+ggsave("pseudotime_trajectory_cancer.png", get_last_plot(), height=14, width=15)
+```
+
+Cluster 2 Alveolar
+Cluster 1 Proliferating Cancer
+Cluster 3 Pathological Alveolar
+
+```{r}
+prop.table(table(pData(cancer_monocle)$State, pData(cancer_monocle)$Cell_Cluster_level2))
+```
+
