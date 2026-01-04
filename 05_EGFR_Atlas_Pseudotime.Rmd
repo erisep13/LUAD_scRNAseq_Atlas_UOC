@@ -331,9 +331,7 @@ bp <- ggplot(as.data.frame(pData(cancer_monocle)), aes(Pseudotime, reorder(Cell_
 ggsave("pseudotime_trajectory_cancer.png", get_last_plot(), height=14, width=15)
 ```
 
-Cluster 2 Alveolar
-Cluster 1 Proliferating Cancer
-Cluster 3 Pathological Alveolar
+El estado 1 corresponde con los estados más tempranos del pseudotiempo. Las células cancerígenas proliferativas se encuentran en su totalidad en este estado, indicando que son el estado inicial en la progresión cncerígena. Se encuentran en estado 1 de forma única también las células en estado `LAMC2 Cancer` y gran cantidad de `CXCL1 Cancer`. En el estado 2 y 3 se da una ramificación hacia estados más tardíos en el pseudotiempo. Es de especial interés la gran dominancia de las células alveolares del estado 2 y del estado más tardío en el pseudotiempo de `CXCL1 Cancer` del estado celular 3.
 
 ```{r}
 prop.table(table(pData(cancer_monocle)$State, pData(cancer_monocle)$Cell_Cluster_level2))
