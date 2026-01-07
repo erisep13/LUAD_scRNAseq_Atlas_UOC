@@ -21,3 +21,24 @@ enfermedad dependiente del sexo.
 ## Adquisición de los datos de origen
 
 El dataset de referencia procede del estudio [Prazanowska, K. H. & Lim, S. B. (2023)](https://doi.org/10.1038/s41597-023-02074-6) y el objeto Seurat producto de este se puede acceder desde [*figshare*](https://doi.org/10.6084/m9.figshare.c.6222221.v3). El dataset de validación procede del estudio [Maynard, A., *et al*. (2020)](https://doi.org/10.1016/j.cell.2020.07.017) accedidos desde su repositorio de [GitHub](https://github.com/czbiohub-sf/scell_lung_adenocarcinoma/tree/master?tab=readme-ov-file).
+
+## Contenido 
+
+**01_EGFR_subset_data_analysis_r441_seurat531.Rmd**: Procesamiento del dataset de referencia siguiendo los códigos del estudio de referencia y adaptando los datos a la pregunta de interés.
+
+**02_Validation_dataset_preparation_analysis.Rmd**: Procesamiento del dataset de referencia a partir de la tabla de contaje o a partir del objeto de Seurat proporcionado por los autores.
+
+**03_Label_Transfer_Integration.Rmd**: Transferencia de etiquetas del dataset de referencia al dataset de validación e integración de los dos conjuntos de datos para crear el atlas de LUAD global.
+
+**04_Atlas_TFM_Analysis.Rmd**: Obtención del atlas final, análisis, caracterización celular y análisis comparativo, añadiendo la perspectiva de género.
+
+**05_EGFR_Atlas_Pseudotime.Rmd**: Análisis de trayectorias en el pseudotiempo para las poblaciones de células T CD8+ y las células cancerígenas para el atlas de mutaciones en *EGFR*.
+
+Se presentan las figuras obtenidas en cada uno de los archivos presentados en sus respectivas carpetas.
+
+## Información del sistema
+
+- R (v4.4.1)
+- `Seurat` (v5.3.1)
+- `ProjecTILs` (v3.7.0)
+- `Monocle` (v2.34.0)
